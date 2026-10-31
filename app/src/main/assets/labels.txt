@@ -1,0 +1,5 @@
+pothole
+crack_network
+rutting
+patch
+manhole_cover

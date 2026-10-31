@@ -1,0 +1,79 @@
+package ai.roadscan.app.data
+
+import androidx.room.Dao
+import androidx.room.Database
+import androidx.room.Entity
+import androidx.room.Index
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.PrimaryKey
+import androidx.room.Query
+import androidx.room.RoomDatabase
+import androidx.room.Transaction
+import kotlinx.coroutines.flow.Flow
+
+@Entity(tableName = "sessions")
+data class SessionEntity(
+    @PrimaryKey val id: String,
+    val startedAtMs: Long,
+    val endedAtMs: Long,
+    val confirmedCount: Int,
+    val visualOnlyCount: Int,
+    val totalAreaM2: Double,
+    val totalRub: Double,
+    val createdAtMs: Long,
+)
+
+@Entity(
+    tableName = "defects",
+    indices = [Index("sessionId")],
+)
+data class DefectEntity(
+    @PrimaryKey val id: String,
+    val sessionId: String,
+    val timestampMs: Long,
+    val latitude: Double?,
+    val longitude: Double?,
+    val type: String,
+    val severity: Int,
+    val confirmed: Boolean,
+    val status: String,
+    val areaM2: Double,
+    val depthMm: Double,
+    val visionConfidence: Float,
+    val impactG: Float,
+    val nearField: Boolean,
+)
+
+@Dao
+interface RoadScanDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSession(session: SessionEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDefects(defects: List<DefectEntity>)
+
+    @Transaction
+    suspend fun saveSession(session: SessionEntity, defects: List<DefectEntity>) {
+        insertSession(session)
+        insertDefects(defects)
+    }
+
+    @Query("SELECT * FROM sessions ORDER BY startedAtMs DESC")
+    fun observeSessions(): Flow<List<SessionEntity>>
+
+    @Query("SELECT COUNT(*) FROM sessions")
+    fun observeSessionCount(): Flow<Int>
+
+    @Query("SELECT * FROM defects WHERE sessionId = :sessionId ORDER BY timestampMs ASC")
+    suspend fun defectsFor(sessionId: String): List<DefectEntity>
+}
+
+@Database(
+    entities = [SessionEntity::class, DefectEntity::class],
+    version = 1,
+    exportSchema = false,
+)
+abstract class RoadScanDatabase : RoomDatabase() {
+    abstract fun dao(): RoadScanDao
+}

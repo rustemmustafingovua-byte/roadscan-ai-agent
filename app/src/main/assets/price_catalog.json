@@ -1,0 +1,14 @@
+{
+  "region": "RU-DEFAULT",
+  "currency": "RUB",
+  "vatRate": 0.2,
+  "items": [
+    { "code": "MILLING", "name": "Фрезерование асфальтобетонного покрытия", "unit": "м³", "priceRub": 850.0 },
+    { "code": "ASPHALT", "name": "Асфальтобетонная смесь, тип Б I", "unit": "т", "priceRub": 9800.0 },
+    { "code": "CRACK_SEAL", "name": "Заделка трещин битумной мастикой", "unit": "м²", "priceRub": 450.0 },
+    { "code": "DISPOSAL", "name": "Вывоз и утилизация фрезерованного материала", "unit": "м³", "priceRub": 700.0 },
+    { "code": "MOBILIZATION", "name": "Мобилизация бригады и техники", "unit": "усл.", "priceRub": 15000.0 },
+    { "code": "TRAFFIC", "name": "Ограждение места работ и организация движения", "unit": "усл.", "priceRub": 8000.0 },
+    { "code": "LABOR", "name": "Дорожные рабочие (подготовка основания)", "unit": "чел·час", "priceRub": 950.0 }
+  ]
+}
