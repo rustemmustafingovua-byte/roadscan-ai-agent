@@ -107,7 +107,8 @@ class RoadScanAgent(
     private var lowBatteryWarned = false
 
     val currentSessionId: String? get() = sessionId
-    val acceptedDefects: List<DefectRecord> get() = accepted.toList()
+    val acceptedDefects: List<DefectRecord>
+        @Synchronized get() = accepted.toList()
     val lastGovernorDecision get() = governor.decision
 
     fun addEventListener(listener: (AgentEvent) -> Unit) {
@@ -129,6 +130,7 @@ class RoadScanAgent(
 
     // ---------------------------------------------------------------- lifecycle
 
+    @Synchronized
     fun startSession(environment: EnvironmentSnapshot): StartResult {
         val events = mutableListOf<AgentEvent>()
         val push = { e: AgentEvent -> events += e; emit(e) }
@@ -179,6 +181,7 @@ class RoadScanAgent(
     }
 
     /** Периодическое обновление условий; завершает калибровку, когда GPS в норме. */
+    @Synchronized
     fun updateEnvironment(environment: EnvironmentSnapshot): AgentState {
         if (state == AgentState.CALIBRATING && environment.gpsAccuracyM <= config.gpsAccuracyWarnM) {
             transition(AgentState.SCANNING)
@@ -203,12 +206,15 @@ class RoadScanAgent(
         )
     }
 
+    @Synchronized
     fun statsSnapshot(): SessionStats = snapshotStats()
 
+    @Synchronized
     fun postProcessingDone() {
         if (state == AgentState.POST_PROCESSING) transition(AgentState.IDLE)
     }
 
+    @Synchronized
     fun abortSession() {
         sessionId = null
         accepted.clear()
@@ -222,6 +228,7 @@ class RoadScanAgent(
 
     fun onSensorSamples(samples: Iterable<SensorSample>) = fusion.addSamples(samples)
 
+    @Synchronized
     fun onVehicleTelemetry(telemetry: VehicleTelemetry) {
         if (state != AgentState.SCANNING && state != AgentState.THROTTLED && state != AgentState.CALIBRATING) {
             return

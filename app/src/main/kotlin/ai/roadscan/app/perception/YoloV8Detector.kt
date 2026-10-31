@@ -61,7 +61,9 @@ class YoloV8Detector(
         return runCatching {
             val letterbox = Letterbox.create(bitmap, inputSize)
             try {
-                val input = toFloatBuffer(letterbox.bitmap)
+                val inputShape = interp.getInputTensor(0).shape()
+                val nchw = inputShape.size == 4 && inputShape[1] == 3
+                val input = toFloatBuffer(letterbox.bitmap, nchw)
                 val outputShape = interp.getOutputTensor(0).shape()
                 val channelsFirst = outputShape.size == 3 && outputShape[1] < outputShape[2]
 
@@ -113,15 +115,25 @@ class YoloV8Detector(
         return if (raw <= 2f) raw * inputSize else raw
     }
 
-    private fun toFloatBuffer(bitmap: Bitmap): ByteBuffer {
+    private fun toFloatBuffer(bitmap: Bitmap, channelsFirst: Boolean): ByteBuffer {
         val buffer = ByteBuffer.allocateDirect(1 * inputSize * inputSize * 3 * 4)
             .order(ByteOrder.nativeOrder())
         val pixels = IntArray(inputSize * inputSize)
         bitmap.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize)
-        for (pixel in pixels) {
-            buffer.putFloat(((pixel shr 16) and 0xFF) / 255f)
-            buffer.putFloat(((pixel shr 8) and 0xFF) / 255f)
-            buffer.putFloat((pixel and 0xFF) / 255f)
+
+        if (channelsFirst) {
+            for (channel in 0..2) {
+                val shift = 16 - channel * 8
+                for (pixel in pixels) {
+                    buffer.putFloat(((pixel shr shift) and 0xFF) / 255f)
+                }
+            }
+        } else {
+            for (pixel in pixels) {
+                buffer.putFloat(((pixel shr 16) and 0xFF) / 255f)
+                buffer.putFloat(((pixel shr 8) and 0xFF) / 255f)
+                buffer.putFloat((pixel and 0xFF) / 255f)
+            }
         }
         buffer.rewind()
         return buffer

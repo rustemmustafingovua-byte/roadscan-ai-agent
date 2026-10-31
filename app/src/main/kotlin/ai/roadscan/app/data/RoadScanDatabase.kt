@@ -56,6 +56,7 @@ interface RoadScanDao {
     @Transaction
     suspend fun saveSession(session: SessionEntity, defects: List<DefectEntity>) {
         insertSession(session)
+        deleteDefects(session.id)
         insertDefects(defects)
     }
 
@@ -67,6 +68,9 @@ interface RoadScanDao {
 
     @Query("SELECT * FROM defects WHERE sessionId = :sessionId ORDER BY timestampMs ASC")
     suspend fun defectsFor(sessionId: String): List<DefectEntity>
+
+    @Query("DELETE FROM defects WHERE sessionId = :sessionId")
+    suspend fun deleteDefects(sessionId: String)
 }
 
 @Database(

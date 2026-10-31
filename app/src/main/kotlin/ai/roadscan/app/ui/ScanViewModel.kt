@@ -104,6 +104,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         )
         val result = agent.startSession(env)
         if (!result.started) {
+            location.stop()
             _state.update { it.copy(agentState = agent.state) }
             return
         }
