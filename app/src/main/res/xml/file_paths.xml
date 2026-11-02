@@ -3,6 +3,9 @@
     <cache-path
         name="exports"
         path="exports/" />
+    <cache-path
+        name="videos"
+        path="videos/" />
     <files-path
         name="reports"
         path="reports/" />

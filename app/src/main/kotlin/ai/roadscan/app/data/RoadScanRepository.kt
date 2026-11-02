@@ -23,9 +23,18 @@ class RoadScanRepository(private val dao: RoadScanDao) {
             totalAreaM2 = report.estimate.totalAreaM2,
             totalRub = report.estimate.totalRub,
             createdAtMs = createdAtMs,
+            metaJson = ai.roadscan.core.report.ReportMeta.toJson(report.meta),
+            calibrationJson = report.calibration?.let { ai.roadscan.core.calibration.CalibrationProfile.toJson(it) }
+                ?: "",
         )
         dao.saveSession(session, report.defects.map { it.toEntity() })
     }
+
+    /** Реквизиты и калибровка сохранённой смены. */
+    fun metaOf(session: SessionEntity): Pair<ai.roadscan.core.report.ReportMeta, ai.roadscan.core.calibration.CalibrationProfile?> =
+        ai.roadscan.core.report.ReportMeta.fromJson(session.metaJson) to
+            session.calibrationJson.takeIf { it.isNotBlank() }
+                ?.let { ai.roadscan.core.calibration.CalibrationProfile.fromJson(it) }
 
     suspend fun loadDefects(sessionId: String): List<DefectRecord> =
         dao.defectsFor(sessionId).map { it.toRecord() }

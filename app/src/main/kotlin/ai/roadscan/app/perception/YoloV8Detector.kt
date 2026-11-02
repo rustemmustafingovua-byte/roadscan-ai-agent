@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import ai.roadscan.core.agent.VisionDetector
 import ai.roadscan.core.model.BoundingBox
 import ai.roadscan.core.model.DefectType
@@ -20,9 +22,17 @@ import kotlin.math.min
  * TFLite YOLOv8-детектор.
  *
  * Модель кладётся в `app/src/main/assets/roadscan_yolov8.tflite`
- * (экспорт YOLOv8n/s с 5 классами: pothole, crack_network, rutting, patch,
- * manhole_cover, вход 640×640 float32). Если файла нет — детектор возвращает
- * пустой список, приложение работает в режиме «только телеметрия».
+ * (YOLO11n на RDD2022, 6 классов, вход 640×640 float32, выход [1,10,8400]).
+ * Если файла нет — детектор возвращает пустой список, приложение работает в
+ * режиме «только телеметрия».
+ *
+ * Производительность (цель ТЗ — кадр < 45 мс):
+ *  - все буферы (вход, выход, пиксели, letterbox-канвас) выделяются один раз
+ *    и переиспользуются, иначе GC съедает кадровый бюджет;
+ *  - масштабирование делается напрямую canvas'ом в letterbox, без временного
+ *    scaled Bitmap;
+ *  - детектор вызывается из одного потока анализа (CameraX executor),
+ *    поэтому общие буферы не требуют блокировок.
  */
 class YoloV8Detector(
     context: Context,
@@ -30,6 +40,7 @@ class YoloV8Detector(
     private val confidenceThreshold: Float = 0.35f,
     private val iouThreshold: Float = 0.45f,
     private val inputSize: Int = 640,
+    numThreads: Int = 4,
 ) : VisionDetector, Closeable {
 
     private val interpreter: Interpreter? = runCatching {
@@ -40,7 +51,7 @@ class YoloV8Detector(
         Interpreter(
             model,
             Interpreter.Options().apply {
-                setNumThreads(4)
+                setNumThreads(numThreads)
                 setUseXNNPACK(true)
             },
         )
@@ -54,89 +65,183 @@ class YoloV8Detector(
 
     val isReady: Boolean get() = interpreter != null
 
+    /** Признак того, что модель ожидает NCHW (обычно NHWC). */
+    private var channelsFirst: Boolean? = null
+
+    // --- переиспользуемые буферы ---
+    private val inputBuffer: ByteBuffer = ByteBuffer
+        .allocateDirect(1 * inputSize * inputSize * 3 * 4)
+        .order(ByteOrder.nativeOrder())
+    private val pixels = IntArray(inputSize * inputSize)
+    private val letterboxBitmap: Bitmap = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888)
+    private val canvas = Canvas(letterboxBitmap)
+    private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
+
+    private var output: Array<Array<FloatArray>>? = null
+    private var outputChannels = 0
+    private var outputCandidates = 0
+    private var outputChannelsFirst = true
+
+    /** Последняя измеренная задержка инференса, мс (для журнала и UI). */
+    @Volatile
+    var lastLatencyMs: Double = 0.0
+        private set
+
+    /** Дефекты последнего кадра — для HUD-наложения поверх превью. */
+    @Volatile
+    var lastDetections: List<VisionDetection> = emptyList()
+        private set
+
     override fun detect(frame: FrameData): List<VisionDetection> {
         val interp = interpreter ?: return emptyList()
         val bitmap = frame.imageRef as? Bitmap ?: return emptyList()
 
+        val startedNs = System.nanoTime()
         return runCatching {
-            val letterbox = Letterbox.create(bitmap, inputSize)
-            try {
-                val inputShape = interp.getInputTensor(0).shape()
-                val nchw = inputShape.size == 4 && inputShape[1] == 3
-                val input = toFloatBuffer(letterbox.bitmap, nchw)
-                val outputShape = interp.getOutputTensor(0).shape()
-                val channelsFirst = outputShape.size == 3 && outputShape[1] < outputShape[2]
+            prepareOutput(interp)
+            drawLetterbox(bitmap)
+            fillInput()
 
-                val channels = if (channelsFirst) outputShape[1] else outputShape[2]
-                val candidates = if (channelsFirst) outputShape[2] else outputShape[1]
-                val output = if (channelsFirst) {
-                    Array(1) { Array(channels) { FloatArray(candidates) } }
-                } else {
-                    Array(1) { Array(candidates) { FloatArray(channels) } }
-                }
-                interp.run(input, output)
+            val boxes = output ?: return emptyList()
+            interp.run(inputBuffer, boxes)
 
-                val detections = mutableListOf<VisionDetection>()
-                val classCount = channels - 4
-                for (i in 0 until candidates) {
-                    var bestScore = 0f
-                    var bestClass = -1
-                    for (c in 0 until classCount) {
-                        val score = if (channelsFirst) output[0][4 + c][i] else output[0][i][4 + c]
-                        if (score > bestScore) {
-                            bestScore = score
-                            bestClass = c
-                        }
+            val detections = mutableListOf<VisionDetection>()
+            val classCount = outputChannels - 4
+            val normalized = coordinatesNormalized(boxes, outputCandidates)
+            val scale = min(inputSize.toFloat() / bitmap.width, inputSize.toFloat() / bitmap.height)
+            val padX = (inputSize - bitmap.width * scale) / 2f
+            val padY = (inputSize - bitmap.height * scale) / 2f
+
+            for (i in 0 until outputCandidates) {
+                var bestScore = 0f
+                var bestClass = -1
+                for (c in 0 until classCount) {
+                    val score = if (outputChannelsFirst) boxes[0][4 + c][i] else boxes[0][i][4 + c]
+                    if (score > bestScore) {
+                        bestScore = score
+                        bestClass = c
                     }
-                    if (bestScore < confidenceThreshold || bestClass < 0) continue
-
-                    val cx = value(output, channelsFirst, i, 0)
-                    val cy = value(output, channelsFirst, i, 1)
-                    val w = value(output, channelsFirst, i, 2)
-                    val h = value(output, channelsFirst, i, 3)
-
-                    val box = letterbox.toFrameBox(cx, cy, w, h, bitmap.width, bitmap.height)
-                    detections += VisionDetection(
-                        type = labelToType(labels.getOrNull(bestClass)),
-                        confidence = bestScore,
-                        box = box,
-                    )
                 }
-                nms(detections)
-            } finally {
-                letterbox.bitmap.recycle()
+                if (bestScore < confidenceThreshold || bestClass < 0) continue
+
+                val type = labelToType(labels.getOrNull(bestClass))
+                // Служебные классы разметки (блики перехода/разметки) не являются дефектами.
+                if (type == DefectType.UNKNOWN) continue
+
+                val cx = coordinate(boxes, i, 0, normalized)
+                val cy = coordinate(boxes, i, 1, normalized)
+                val w = coordinate(boxes, i, 2, normalized)
+                val h = coordinate(boxes, i, 3, normalized)
+
+                val box = toFrameBox(cx, cy, w, h, scale, padX, padY, bitmap.width, bitmap.height)
+                if (box.width < 0.01f || box.height < 0.01f) continue
+                detections += VisionDetection(type = type, confidence = bestScore, box = box)
             }
-        }.getOrElse { emptyList() }
+            nms(detections)
+        }.getOrElse { emptyList() }.also {
+            lastLatencyMs = (System.nanoTime() - startedNs) / 1_000_000.0
+            lastDetections = it
+        }
     }
 
-    private fun value(output: Array<Array<FloatArray>>, channelsFirst: Boolean, i: Int, c: Int): Float {
-        val raw = if (channelsFirst) output[0][c][i] else output[0][i][c]
-        // Некоторые экспорты отдают координаты в пикселях, некоторые — нормализованные.
-        return if (raw <= 2f) raw * inputSize else raw
+    private fun prepareOutput(interp: Interpreter) {
+        val cached = output
+        if (cached != null) return
+        val shape = interp.getOutputTensor(0).shape()
+        val first = shape.size == 3 && shape[1] < shape[2]
+        outputChannelsFirst = first
+        outputChannels = if (first) shape[1] else shape[2]
+        outputCandidates = if (first) shape[2] else shape[1]
+        output = if (first) {
+            Array(1) { Array(outputChannels) { FloatArray(outputCandidates) } }
+        } else {
+            Array(1) { Array(outputCandidates) { FloatArray(outputChannels) } }
+        }
+        channelsFirst = interp.getInputTensor(0).shape().let { it.size == 4 && it[1] == 3 }
     }
 
-    private fun toFloatBuffer(bitmap: Bitmap, channelsFirst: Boolean): ByteBuffer {
-        val buffer = ByteBuffer.allocateDirect(1 * inputSize * inputSize * 3 * 4)
-            .order(ByteOrder.nativeOrder())
-        val pixels = IntArray(inputSize * inputSize)
-        bitmap.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize)
+    private fun drawLetterbox(source: Bitmap) {
+        val scale = min(inputSize.toFloat() / source.width, inputSize.toFloat() / source.height)
+        val scaledW = source.width * scale
+        val scaledH = source.height * scale
+        val padX = (inputSize - scaledW) / 2f
+        val padY = (inputSize - scaledH) / 2f
+        canvas.drawColor(Color.BLACK)
+        canvas.drawBitmap(source, null, RectF(padX, padY, padX + scaledW, padY + scaledH), paint)
+    }
 
-        if (channelsFirst) {
+    private fun fillInput() {
+        letterboxBitmap.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize)
+        inputBuffer.rewind()
+        if (channelsFirst == true) {
             for (channel in 0..2) {
                 val shift = 16 - channel * 8
                 for (pixel in pixels) {
-                    buffer.putFloat(((pixel shr shift) and 0xFF) / 255f)
+                    inputBuffer.putFloat(((pixel shr shift) and 0xFF) / 255f)
                 }
             }
         } else {
             for (pixel in pixels) {
-                buffer.putFloat(((pixel shr 16) and 0xFF) / 255f)
-                buffer.putFloat(((pixel shr 8) and 0xFF) / 255f)
-                buffer.putFloat((pixel and 0xFF) / 255f)
+                inputBuffer.putFloat(((pixel shr 16) and 0xFF) / 255f)
+                inputBuffer.putFloat(((pixel shr 8) and 0xFF) / 255f)
+                inputBuffer.putFloat((pixel and 0xFF) / 255f)
             }
         }
-        buffer.rewind()
-        return buffer
+        inputBuffer.rewind()
+    }
+
+    private fun coordinate(
+        output: Array<Array<FloatArray>>,
+        i: Int,
+        c: Int,
+        normalized: Boolean,
+    ): Float {
+        val raw = if (outputChannelsFirst) output[0][c][i] else output[0][i][c]
+        return if (normalized) raw * inputSize else raw
+    }
+
+    /**
+     * Экспорт YOLOv8/11 в TFLite отдаёт координаты либо в пикселях входного
+     * тензора, либо нормализованными 0..1. Определяем по максимуму координат,
+     * а не по каждой рамке (иначе маленькие объекты «уезжают» в 640 раз).
+     */
+    private fun coordinatesNormalized(
+        output: Array<Array<FloatArray>>,
+        candidates: Int,
+    ): Boolean {
+        var max = 0f
+        var i = 0
+        while (i < candidates) {
+            for (c in 0..3) {
+                val raw = if (outputChannelsFirst) output[0][c][i] else output[0][i][c]
+                if (raw > max) max = raw
+            }
+            i += 7
+        }
+        return max <= 2f
+    }
+
+    private fun toFrameBox(
+        cx: Float,
+        cy: Float,
+        w: Float,
+        h: Float,
+        scale: Float,
+        padX: Float,
+        padY: Float,
+        frameW: Int,
+        frameH: Int,
+    ): BoundingBox {
+        val left = ((cx - w / 2f) - padX) / scale / frameW
+        val top = ((cy - h / 2f) - padY) / scale / frameH
+        val right = ((cx + w / 2f) - padX) / scale / frameW
+        val bottom = ((cy + h / 2f) - padY) / scale / frameH
+        return BoundingBox(
+            left = left.coerceIn(0f, 1f),
+            top = top.coerceIn(0f, 1f),
+            right = right.coerceIn(0f, 1f),
+            bottom = bottom.coerceIn(0f, 1f),
+        )
     }
 
     private fun nms(detections: List<VisionDetection>): List<VisionDetection> {
@@ -166,46 +271,10 @@ class YoloV8Detector(
         interpreter?.close()
     }
 
-    private class Letterbox(
-        val bitmap: Bitmap,
-        val scale: Float,
-        val padX: Float,
-        val padY: Float,
-    ) {
-        fun toFrameBox(cx: Float, cy: Float, w: Float, h: Float, frameW: Int, frameH: Int): BoundingBox {
-            val left = ((cx - w / 2f) - padX) / scale / frameW
-            val top = ((cy - h / 2f) - padY) / scale / frameH
-            val right = ((cx + w / 2f) - padX) / scale / frameW
-            val bottom = ((cy + h / 2f) - padY) / scale / frameH
-            return BoundingBox(
-                left = left.coerceIn(0f, 1f),
-                top = top.coerceIn(0f, 1f),
-                right = right.coerceIn(0f, 1f),
-                bottom = bottom.coerceIn(0f, 1f),
-            )
-        }
-
-        companion object {
-            fun create(source: Bitmap, size: Int): Letterbox {
-                val scale = min(size.toFloat() / source.width, size.toFloat() / source.height)
-                val scaledW = (source.width * scale).toInt().coerceAtLeast(1)
-                val scaledH = (source.height * scale).toInt().coerceAtLeast(1)
-                val padX = (size - scaledW) / 2f
-                val padY = (size - scaledH) / 2f
-                val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(output)
-                canvas.drawColor(Color.BLACK)
-                val scaled = Bitmap.createScaledBitmap(source, scaledW, scaledH, true)
-                canvas.drawBitmap(scaled, padX, padY, null)
-                if (scaled !== source) scaled.recycle()
-                return Letterbox(output, scale, padX, padY)
-            }
-        }
-    }
-
-    private fun labelToType(label: String?): DefectType = when (label?.lowercase()) {
+    private fun labelToType(label: String?): DefectType = when (label?.lowercase()?.trim()) {
         "pothole", "яма" -> DefectType.POTHOLE
-        "crack_network", "crack", "трещина" -> DefectType.CRACK_NETWORK
+        "crack_network", "crack", "трещина", "alligator", "longitudinal", "equal interval",
+        "transverse", "crack network" -> DefectType.CRACK_NETWORK
         "rutting", "колея" -> DefectType.RUTTING
         "patch", "заплатка" -> DefectType.PATCH
         "manhole_cover", "manhole", "люк" -> DefectType.MANHOLE_COVER
@@ -214,11 +283,12 @@ class YoloV8Detector(
 
     companion object {
         private val DEFAULT_LABELS = listOf(
+            "longitudinal",
+            "equal interval",
+            "alligator",
             "pothole",
-            "crack_network",
-            "rutting",
-            "patch",
-            "manhole_cover",
+            "crosswalk blur",
+            "whiteline blur",
         )
     }
 }

@@ -16,8 +16,8 @@ data class PriceItem(
 
 @Serializable
 data class PriceCatalog(
-    val region: String = "RU-DEFAULT",
-    val currency: String = "RUB",
+    val region: String = "UA-DEFAULT",
+    val currency: String = "UAH",
     val vatRate: Double = 0.20,
     val items: List<PriceItem> = emptyList(),
 ) {
@@ -30,7 +30,31 @@ data class PriceCatalog(
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
 
-        val DEFAULT = PriceCatalog(
+        /**
+         * Каталог для Украины (грн). Цены — шаблон для пилота: дорожная служба
+         * подставляет свои расценки по договору, структура и коды работ
+         * неизменны. НДС 20%.
+         */
+        val UA_DEFAULT = PriceCatalog(
+            region = "UA-DEFAULT",
+            currency = "UAH",
+            vatRate = 0.20,
+            items = listOf(
+                PriceItem("MILLING", "Фрезерування асфальтобетонного покриття", "м³", 1_150.0),
+                PriceItem("ASPHALT", "Асфальтобетонна суміш, тип Б I", "т", 6_400.0),
+                PriceItem("CRACK_SEAL", "Закладення тріщин бітумною мастикою", "м²", 380.0),
+                PriceItem("DISPOSAL", "Вивезення та утилізація фрезерованого матеріалу", "м³", 620.0),
+                PriceItem("MOBILIZATION", "Мобілізація бригади та техніки", "посл.", 14_000.0),
+                PriceItem("TRAFFIC", "Огородження місця робіт і організація руху", "посл.", 7_500.0),
+                PriceItem("LABOR", "Дорожні робітники (підготовка основи)", "люд·год", 420.0),
+            ),
+        )
+
+        /** Каталог для РФ (руб.) — для действующих заказчиков и сравнения. */
+        val RU_DEFAULT = PriceCatalog(
+            region = "RU-DEFAULT",
+            currency = "RUB",
+            vatRate = 0.20,
             items = listOf(
                 PriceItem("MILLING", "Фрезерование асфальтобетонного покрытия", "м³", 850.0),
                 PriceItem("ASPHALT", "Асфальтобетонная смесь, тип Б I", "т", 9_800.0),
@@ -41,6 +65,12 @@ data class PriceCatalog(
                 PriceItem("LABOR", "Дорожные рабочие (подготовка основания)", "чел·час", 950.0),
             ),
         )
+
+        /** Каталог по умолчанию: целевой рынок продукта — Украина. */
+        val DEFAULT: PriceCatalog = UA_DEFAULT
+
+        fun forRegion(region: String?): PriceCatalog =
+            if (region?.uppercase()?.startsWith("RU") == true) RU_DEFAULT else UA_DEFAULT
 
         fun fromJson(text: String): PriceCatalog = json.decodeFromString(text)
 

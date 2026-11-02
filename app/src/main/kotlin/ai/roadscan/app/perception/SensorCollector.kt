@@ -15,7 +15,7 @@ import ai.roadscan.core.model.SensorSample
  */
 class SensorCollector(
     context: Context,
-    private val agent: RoadScanAgent,
+    private val agentProvider: () -> RoadScanAgent,
     private val targetHz: Int = 200,
 ) : SensorEventListener {
 
@@ -41,7 +41,7 @@ class SensorCollector(
         if (event.timestamp - lastTimestampNs < minIntervalNs) return
         lastTimestampNs = event.timestamp
         val values = event.values
-        agent.onSensorSample(
+        agentProvider().onSensorSample(
             SensorSample(
                 timestampMs = event.timestamp / 1_000_000L,
                 zGForce = values[2],

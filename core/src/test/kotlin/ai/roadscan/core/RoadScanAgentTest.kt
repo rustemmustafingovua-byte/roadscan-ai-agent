@@ -4,6 +4,7 @@ import ai.roadscan.core.agent.AgentConfig
 import ai.roadscan.core.agent.Clock
 import ai.roadscan.core.agent.PostProcessingAgent
 import ai.roadscan.core.agent.RoadScanAgent
+import ai.roadscan.core.i18n.CoreMessages
 import ai.roadscan.core.model.AgentEvent
 import ai.roadscan.core.model.AgentState
 import ai.roadscan.core.model.EnvironmentSnapshot
@@ -53,7 +54,7 @@ class RoadScanAgentTest {
         assertTrue(result.started)
         assertEquals(AgentState.CALIBRATING, agent.state)
         val prompt = events.filterIsInstance<AgentEvent.VoicePrompt>().first().message
-        assertEquals(RoadScanAgent.GPS_WARNING, prompt)
+        assertEquals(CoreMessages.DEFAULT.gpsWarning, prompt)
     }
 
     @Test
@@ -176,7 +177,7 @@ class RoadScanAgentTest {
 
         assertTrue(events.any { it is AgentEvent.BatteryLow })
         assertTrue(
-            events.filterIsInstance<AgentEvent.VoicePrompt>().any { it.message == RoadScanAgent.BATTERY_WARNING },
+            events.filterIsInstance<AgentEvent.VoicePrompt>().any { it.message == CoreMessages.DEFAULT.batteryWarning },
         )
     }
 
@@ -190,7 +191,7 @@ class RoadScanAgentTest {
 
         assertTrue(events.any { it is AgentEvent.LensDirty })
         assertTrue(
-            events.filterIsInstance<AgentEvent.VoicePrompt>().any { it.message == RoadScanAgent.LENS_WARNING },
+            events.filterIsInstance<AgentEvent.VoicePrompt>().any { it.message == CoreMessages.DEFAULT.lensWarning },
         )
     }
 

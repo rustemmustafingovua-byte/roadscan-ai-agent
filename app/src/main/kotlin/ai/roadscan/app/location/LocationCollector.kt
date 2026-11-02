@@ -3,6 +3,7 @@ package ai.roadscan.app.location
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Geocoder
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -10,6 +11,8 @@ import android.os.Bundle
 import android.os.Looper
 import androidx.core.content.ContextCompat
 import ai.roadscan.core.model.GeoPoint
+import java.util.Locale
+import java.util.concurrent.Executors
 
 /**
  * GNSS без Google Play Services: GPS_PROVIDER + NETWORK_PROVIDER.
@@ -31,11 +34,28 @@ class LocationCollector(private val context: Context) {
     var speedKmh: Float = 0f
         private set
 
+    /** Название улицы по обратному геокодированию (если доступно офлайн/онлайн). */
+    @Volatile
+    var street: String? = null
+        private set
+
+    /** Город/населённый пункт для шапки HUD. */
+    @Volatile
+    var city: String? = null
+        private set
+
+    private val geocoder = runCatching { Geocoder(context, Locale("uk", "UA")) }.getOrNull()
+    private val geocoderExecutor = Executors.newSingleThreadExecutor()
+    private var lastGeocodeAtMs = 0L
+    private var lastGeocodedPoint: GeoPoint? = null
+
     private val listener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
-            latest = GeoPoint(location.latitude, location.longitude, location.accuracy)
+            val point = GeoPoint(location.latitude, location.longitude, location.accuracy)
+            latest = point
             accuracyM = location.accuracy
             speedKmh = if (location.hasSpeed()) (location.speed * 3.6f).coerceAtLeast(0f) else 0f
+            maybeGeocode(point)
         }
 
         @Deprecated("Deprecated in Java")
@@ -80,6 +100,42 @@ class LocationCollector(private val context: Context) {
 
     fun stop() {
         runCatching { manager.removeUpdates(listener) }
+    }
+
+    /**
+     * Обратное геокодирование для HUD: улица и город в шапке.
+     *
+     * Сеть не обязательна: если Geocoder офлайн или не отвечает, HUD просто
+     * показывает координаты. Запросы throttle'ятся (раз в 10 с или при
+     * смещении > 80 м), чтобы не грузить устройство и не тратить трафик.
+     */
+    private fun maybeGeocode(point: GeoPoint) {
+        val geocoder = geocoder ?: return
+        val now = System.currentTimeMillis()
+        val moved = lastGeocodedPoint?.let { previous ->
+            ai.roadscan.core.geo.GeoMath.distanceMeters(previous, point) > 80.0
+        } ?: true
+        if (!moved && now - lastGeocodeAtMs < 10_000) return
+        if (now - lastGeocodeAtMs < 2_000) return
+        lastGeocodeAtMs = now
+        lastGeocodedPoint = point
+
+        runCatching {
+            geocoderExecutor.execute {
+                runCatching {
+                    @Suppress("DEPRECATION")
+                    val addresses = geocoder.getFromLocation(point.lat, point.lon, 1)
+                    val address = addresses?.firstOrNull() ?: return@execute
+                    street = listOfNotNull(
+                        address.thoroughfare ?: address.featureName,
+                        address.subThoroughfare,
+                    ).joinToString(", ").takeIf { it.isNotBlank() }
+                    city = address.locality
+                        ?: address.subAdminArea
+                        ?: address.adminArea
+                }
+            }
+        }
     }
 
     /** Ручная подстановка точки от внешнего RTK-приёмника. */

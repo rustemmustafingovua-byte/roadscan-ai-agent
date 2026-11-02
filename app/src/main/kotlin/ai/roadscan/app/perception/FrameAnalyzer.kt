@@ -6,25 +6,42 @@ import android.os.SystemClock
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import ai.roadscan.core.agent.RoadScanAgent
+import ai.roadscan.core.calibration.CalibrationProfile
 import ai.roadscan.core.model.FrameData
 import ai.roadscan.core.model.GeoPoint
+import ai.roadscan.core.model.VisionDetection
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.abs
 import kotlin.math.sqrt
 
+/** Результат обработки одного кадра — для HUD и метрик. */
+data class FrameMetrics(
+    val latencyMs: Double,
+    val contrast: Float,
+    val frameWidth: Int,
+    val frameHeight: Int,
+    val overlays: List<OverlayDetection>,
+    val speedKmh: Float,
+)
+
 /**
- * CameraX-анализатор: кадр -> контраст -> YOLO -> агент.
+ * CameraX-анализатор: кадр -> контраст -> YOLO -> агент -> наложение для HUD.
  *
+ * Агент и калибровка берутся через провайдеры: пользователь может изменить
+ * профиль автомобиля и пересобрать агента без пересоздания анализатора.
  * Работает на одном фоновом executor'е, поэтому порядок кадров сохраняется.
  */
 class FrameAnalyzer(
-    private val agent: RoadScanAgent,
+    private val agentProvider: () -> RoadScanAgent,
+    private val calibrationProvider: () -> CalibrationProfile,
     private val locationProvider: () -> GeoPoint?,
     private val speedProvider: () -> Float,
-    private val onFrame: (latencyMs: Double) -> Unit = {},
+    /** Дефекты последнего кадра из детектора (для подписей на превью). */
+    private val detectionsProvider: () -> List<VisionDetection> = { emptyList() },
+    private val onFrame: (FrameMetrics) -> Unit = {},
 ) : ImageAnalysis.Analyzer {
 
     val framesSeen = AtomicLong(0)
+    private val tracker = DetectionTracker()
 
     override fun analyze(image: ImageProxy) {
         val started = System.nanoTime()
@@ -34,22 +51,36 @@ class FrameAnalyzer(
             original = image.toBitmap()
             oriented = rotate(original, image.imageInfo.rotationDegrees)
             val contrast = meanContrast(oriented)
+            val calibration = calibrationProvider()
+            val speed = speedProvider()
 
             val frame = FrameData(
                 timestampMs = System.currentTimeMillis(),
                 location = locationProvider(),
-                cameraHeightM = 1.3f,
-                cameraPitchDeg = 8f,
+                cameraHeightM = calibration.cameraHeightM,
+                cameraPitchDeg = calibration.cameraPitchDeg,
                 imageWidth = oriented.width,
                 imageHeight = oriented.height,
-                speedKmh = speedProvider(),
+                speedKmh = speed,
                 meanContrast = contrast,
                 sensorTimestampMs = SystemClock.elapsedRealtime(),
                 imageRef = oriented,
             )
-            agent.evaluateFrameAndSensor(frame)
+            agentProvider().evaluateFrameAndSensor(frame)
             framesSeen.incrementAndGet()
-            onFrame((System.nanoTime() - started) / 1_000_000.0)
+
+            val now = SystemClock.elapsedRealtime()
+            val overlays = tracker.update(detectionsProvider(), now)
+            onFrame(
+                FrameMetrics(
+                    latencyMs = (System.nanoTime() - started) / 1_000_000.0,
+                    contrast = contrast,
+                    frameWidth = oriented.width,
+                    frameHeight = oriented.height,
+                    overlays = overlays,
+                    speedKmh = speed,
+                ),
+            )
         } catch (_: Throwable) {
             // Один битый кадр не должен ронять смену.
         } finally {
@@ -58,6 +89,9 @@ class FrameAnalyzer(
             image.close()
         }
     }
+
+    /** Сброс трекера на старте смены: номера дефектов начинаются с 001. */
+    fun resetTracking() = tracker.reset()
 
     private fun rotate(source: Bitmap, degrees: Int): Bitmap {
         if (degrees % 360 == 0) return source

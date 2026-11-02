@@ -1,7 +1,9 @@
 package ai.roadscan.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -25,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -33,18 +36,51 @@ import ai.roadscan.app.ui.RoadScanTheme
 import ai.roadscan.app.ui.ScanViewModel
 
 class MainActivity : ComponentActivity() {
+
+    /** Видео, которым поделились из галереи: сразу отправляем в видеостудию. */
+    private val sharedVideo = mutableStateOf<Uri?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        sharedVideo.value = videoUri(intent)
+        // Активация лицензии через deep link — для MDM/массового развёртывания:
+        // roadscan://license?key=RSL1...
+        applyLicenseIntent(intent)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         setContent {
             RoadScanTheme {
                 PermissionGate {
                     val viewModel: ScanViewModel = viewModel()
-                    RoadScanRoot(viewModel)
+                    RoadScanRoot(
+                        viewModel = viewModel,
+                        incomingVideo = sharedVideo.value,
+                        onIncomingVideoHandled = { sharedVideo.value = null },
+                    )
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        applyLicenseIntent(intent)
+        videoUri(intent)?.let { sharedVideo.value = it }
+    }
+
+    private fun videoUri(intent: Intent?): Uri? {
+        if (intent?.action != Intent.ACTION_SEND) return null
+        val type = intent.type ?: return null
+        if (!type.startsWith("video/")) return null
+        return intent.getParcelableExtra(Intent.EXTRA_STREAM)
+    }
+
+    private fun applyLicenseIntent(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme != "roadscan" || uri.host != "license") return
+        val key = uri.getQueryParameter("key")?.takeIf { it.isNotBlank() } ?: return
+        (application as RoadScanApp).container.settings.activate(key)
     }
 }
 
@@ -93,7 +129,7 @@ private fun PermissionGate(content: @Composable () -> Unit) {
             ) {
                 Text("RoadScan AI", style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    "Нужен доступ к камере для анализа дорожного покрытия и к геолокации для привязки дефектов.",
+                    stringResource(R.string.permission_hint),
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(vertical = 16.dp),
                 )
@@ -108,11 +144,11 @@ private fun PermissionGate(content: @Composable () -> Unit) {
                         )
                     },
                 ) {
-                    Text("Разрешить доступ")
+                    Text(stringResource(R.string.permission_action))
                 }
                 if (locationGranted) {
                     Text(
-                        "GPS разрешён",
+                        stringResource(R.string.permission_gps_granted),
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(top = 12.dp),
                     )

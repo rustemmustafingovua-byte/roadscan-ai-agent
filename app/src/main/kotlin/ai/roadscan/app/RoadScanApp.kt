@@ -3,6 +3,7 @@ package ai.roadscan.app
 import android.app.Application
 import ai.roadscan.app.data.RoadScanDatabase
 import ai.roadscan.app.data.RoadScanRepository
+import ai.roadscan.app.settings.SettingsStore
 import ai.roadscan.core.agent.AgentConfig
 import ai.roadscan.core.estimate.PriceCatalog
 import androidx.room.Room
@@ -18,13 +19,20 @@ class RoadScanApp : Application() {
 }
 
 class AppContainer(application: Application) {
-    val config = AgentConfig.DEFAULT
+
+    /** Калибровка, реквизиты документов и лицензия — всё офлайн. */
+    val settings = SettingsStore(application)
+
+    val config: AgentConfig = AgentConfig.DEFAULT
 
     val database: RoadScanDatabase = Room.databaseBuilder(
         application,
         RoadScanDatabase::class.java,
         "roadscan.db",
-    ).fallbackToDestructiveMigration().build()
+    )
+        .addMigrations(RoadScanDatabase.MIGRATION_1_2)
+        .fallbackToDestructiveMigration()
+        .build()
 
     val repository = RoadScanRepository(database.dao())
 

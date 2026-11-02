@@ -80,7 +80,7 @@ class ReportExportTest {
         }
 
         val sheet = entries["xl/worksheets/sheet1.xml"]!!.decodeToString()
-        assertTrue(sheet.contains("Фрезерование"))
+        assertTrue(sheet.contains("Фрезерування"))
         assertTrue(sheet.contains("ASPHALT"))
     }
 
@@ -107,8 +107,32 @@ class ReportExportTest {
         val r = report()
         val bytes = ReportXlsxBuilder.build(r)
         val sheet = unzip(bytes)["xl/worksheets/sheet1.xml"]!!.decodeToString()
-        assertTrue(sheet.contains("ВСЕГО"))
-        assertTrue(sheet.contains("Тоннаж асфальтобетона"))
+        assertTrue(sheet.contains("ВСЬОГО"))
+        assertTrue(sheet.contains("Асфальтобетон"))
+    }
+
+    @Test
+    fun `work order details and demo watermark reach documents`() {
+        val meta = ai.roadscan.core.report.ReportMeta(
+            objectName = "ул. Ленина, чётная сторона",
+            roadName = "А-108, км 12+400",
+            customer = "МБУ Дорремстрой",
+            contractor = "ООО ДорСкан",
+            contractNumber = "44-2026/17",
+            demo = true,
+        )
+        val base = report()
+        val report = base.copy(meta = meta)
+
+        val sheet = unzip(ReportXlsxBuilder.build(report))["xl/worksheets/sheet1.xml"]!!.decodeToString()
+        assertTrue(sheet.contains("ул. Ленина"))
+        assertTrue(sheet.contains("МБУ Дорремстрой"))
+        assertTrue(sheet.contains("ДЕМОНСТРАЦІЙНИЙ"))
+
+        val geojson = Json.parseToJsonElement(GeoJsonExporter.export(report)).jsonObject
+        val props = geojson["properties"]!!.jsonObject
+        assertEquals("А-108, км 12+400", props["road_name"]!!.jsonPrimitive.content)
+        assertEquals("true", props["demo"]!!.jsonPrimitive.content)
     }
 
     private fun unzip(bytes: ByteArray): Map<String, ByteArray> {

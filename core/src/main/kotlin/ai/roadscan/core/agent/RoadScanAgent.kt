@@ -3,6 +3,7 @@ package ai.roadscan.core.agent
 import ai.roadscan.core.estimate.Estimate
 import ai.roadscan.core.fusion.SensorFusionEngine
 import ai.roadscan.core.geo.DefectCluster
+import ai.roadscan.core.i18n.CoreMessages
 import ai.roadscan.core.model.AgentEvent
 import ai.roadscan.core.model.AgentState
 import ai.roadscan.core.model.ConfirmationStatus
@@ -54,6 +55,10 @@ data class SessionReport(
     val visualOnlyClusters: List<DefectCluster>,
     val estimate: Estimate,
     val stats: SessionStats,
+    /** Реквизиты объекта/договора для документов дорожной службы. */
+    val meta: ai.roadscan.core.report.ReportMeta = ai.roadscan.core.report.ReportMeta.EMPTY,
+    /** Профиль геометрии, с которым выполнена смена (аудит методики). */
+    val calibration: ai.roadscan.core.calibration.CalibrationProfile? = null,
 ) {
     val durationMs: Long get() = (endedAtMs - startedAtMs).coerceAtLeast(0)
 }
@@ -70,6 +75,8 @@ class RoadScanAgent(
     private val detector: VisionDetector = VisionDetector { it.detections },
     private val clock: Clock = Clock.SYSTEM,
     private val eventListener: (AgentEvent) -> Unit = {},
+    /** Локализованные подсказки оператору (укр./рус.). */
+    val messages: CoreMessages = CoreMessages.DEFAULT,
 ) {
     var state: AgentState = AgentState.IDLE
         private set
@@ -78,7 +85,7 @@ class RoadScanAgent(
     val governor = ai.roadscan.core.perception.AdaptiveFrameGovernor(config)
     val lensMonitor = ai.roadscan.core.perception.LensQualityMonitor(config) { count ->
         emit(AgentEvent.LensDirty(count))
-        emit(AgentEvent.VoicePrompt(LENS_WARNING, AgentEvent.VoicePrompt.Priority.HIGH))
+        emit(AgentEvent.VoicePrompt(messages.lensWarning, AgentEvent.VoicePrompt.Priority.HIGH))
     }
 
     private val areaEstimator = ai.roadscan.core.geo.MonocularAreaEstimator(config)
@@ -137,12 +144,12 @@ class RoadScanAgent(
 
         if (environment.freeDiskMb < config.minFreeDiskMb) {
             transition(AgentState.ERROR)
-            push(AgentEvent.Error("Недостаточно места на диске: ${environment.freeDiskMb} МБ. Освободите память и повторите."))
+            push(AgentEvent.Error(messages.noDiskSpace(environment.freeDiskMb)))
             return StartResult(false, state, events)
         }
         if (!environment.batteryTempC.isNaN() && environment.batteryTempC >= 45f) {
             transition(AgentState.ERROR)
-            push(AgentEvent.Error("Батарея перегрета (${environment.batteryTempC.toInt()}°C). Дайте устройству остыть."))
+            push(AgentEvent.Error(messages.batteryOverheated(environment.batteryTempC.toInt())))
             return StartResult(false, state, events)
         }
 
@@ -166,11 +173,11 @@ class RoadScanAgent(
 
         val gpsOk = environment.gpsAccuracyM <= config.gpsAccuracyWarnM
         if (!gpsOk) {
-            push(AgentEvent.VoicePrompt(GPS_WARNING, AgentEvent.VoicePrompt.Priority.HIGH))
+            push(AgentEvent.VoicePrompt(messages.gpsWarning, AgentEvent.VoicePrompt.Priority.HIGH))
         }
         if (environment.batteryPercent <= config.batteryLowPercent) {
             push(AgentEvent.BatteryLow(environment.batteryPercent))
-            push(AgentEvent.VoicePrompt(BATTERY_WARNING, AgentEvent.VoicePrompt.Priority.HIGH))
+            push(AgentEvent.VoicePrompt(messages.batteryWarning, AgentEvent.VoicePrompt.Priority.HIGH))
             lowBatteryWarned = true
         }
 
@@ -257,11 +264,7 @@ class RoadScanAgent(
                 ai.roadscan.core.perception.AdaptiveFrameGovernor.Mode.THERMAL_THROTTLE -> {
                     if (state == AgentState.SCANNING) transition(AgentState.THROTTLED)
                     emit(AgentEvent.ThermalThrottled(decision.cpuTempC, decision.targetFps))
-                    emit(
-                        AgentEvent.VoicePrompt(
-                            "Процессор нагрелся. Снижаю частоту анализа до ${decision.targetFps} кадров в секунду.",
-                        ),
-                    )
+                    emit(AgentEvent.VoicePrompt(messages.thermalThrottle(decision.targetFps)))
                 }
 
                 ai.roadscan.core.perception.AdaptiveFrameGovernor.Mode.EMERGENCY -> {
@@ -269,7 +272,7 @@ class RoadScanAgent(
                     emit(AgentEvent.ThermalThrottled(decision.cpuTempC, decision.targetFps))
                     emit(
                         AgentEvent.VoicePrompt(
-                            "Критический нагрев. Перехожу в энергосберегающий режим.",
+                            messages.thermalEmergency,
                             AgentEvent.VoicePrompt.Priority.HIGH,
                         ),
                     )
@@ -285,7 +288,7 @@ class RoadScanAgent(
             emit(AgentEvent.BatteryLow(telemetry.batteryPercent))
             emit(
                 AgentEvent.VoicePrompt(
-                    BATTERY_WARNING,
+                    messages.batteryWarning,
                     AgentEvent.VoicePrompt.Priority.HIGH,
                 ),
             )
@@ -296,7 +299,7 @@ class RoadScanAgent(
         if (telemetry.freeDiskMb < config.minFreeDiskMb) {
             emit(
                 AgentEvent.VoicePrompt(
-                    "Мало места на диске. Освободите ${config.minFreeDiskMb - telemetry.freeDiskMb} МБ.",
+                    messages.lowDisk(config.minFreeDiskMb - telemetry.freeDiskMb),
                     AgentEvent.VoicePrompt.Priority.HIGH,
                 ),
             )
@@ -307,7 +310,7 @@ class RoadScanAgent(
         val now = clock.nowMs()
         if (now - lastGpsPromptAt < 60_000) return
         lastGpsPromptAt = now
-        emit(AgentEvent.VoicePrompt(GPS_WARNING, AgentEvent.VoicePrompt.Priority.HIGH))
+        emit(AgentEvent.VoicePrompt(messages.gpsWarning, AgentEvent.VoicePrompt.Priority.HIGH))
     }
 
     // ------------------------------------------------------------ frame pipeline
@@ -436,10 +439,4 @@ class RoadScanAgent(
         averageLatencyMs = if (latencySamples == 0) 0.0 else latencySumMs / latencySamples,
     )
 
-    companion object {
-        const val GPS_WARNING = "Внимание, низкая точность GPS. Рекомендуется подключить внешний RTK-модуль."
-        const val BATTERY_WARNING =
-            "Заряд батареи ниже 20%. Рекомендуется сохранить путевой лог и завершить смену или перейти в фоновый режим."
-        const val LENS_WARNING = "Объектив загрязнен. Протрите камеру."
-    }
 }

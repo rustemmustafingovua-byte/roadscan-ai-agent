@@ -1,24 +1,38 @@
 # RoadScan AI Agent
 
+> **Українською коротко.** Android-застосунок для обстеження дорожнього покриття:
+> камера + акселерометр + GNSS у реальному часі знаходять дефекти, а після зміни
+> самі формують **кошторис (Excel)**, **відомість (PDF)** і **GeoJSON** для ГІС —
+> у гривні з ПДВ 20 %, за термінологією ДСТУ, повністю офлайн. Окремо є
+> **Відеостудія**: сире відео → нейромережа сама знаходить дефекти → готовий
+> ролик із титрами та рамками `ID · Впевненість`, без звуку.
+> Деталі: [`docs/UKRAINE.md`](docs/UKRAINE.md), комерційна модель —
+> [`docs/COMMERCIAL.md`](docs/COMMERCIAL.md).
+
 Android-приложение с автономным AI-агентом-оркестратором для мобильного комплекса
 анализа дорожного покрытия. Реализует ТЗ «RoadScan AI Agent»: Perceive → Reason → Act,
 машину состояний, сенсорную фузию, адаптивный FPS, кластеризацию дефектов, расчёт
 сметы и офлайн-экспорт PDF / Excel / GeoJSON.
 
-Проект собирается и проходит тесты на JDK 17 + Android SDK 36:
+Продукт подготовлен к коммерческой эксплуатации дорожными службами: есть
+калибровка под автомобиль, реквизиты объекта/договора в документах, офлайн-лицензия
+с пробным периодом и водяным знаком. Коммерческая модель, цены, состав поставки и
+честный список того, что нужно закрыть до платных внедрений — в
+[`docs/COMMERCIAL.md`](docs/COMMERCIAL.md).
 
 ```bash
-./gradlew :core:test          # 59 юнит-тестов ядра
+./gradlew :core:test          # 88 юнит-тестов ядра
 ./gradlew :app:assembleDebug  # APK: app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :core:demo          # синтетическая смена → XLSX + GeoJSON в core/build/demo
+./tools/license.py issue --org "КП Шляхове господарство" --tier PRO --days 365
 ```
 
 ## Что внутри
 
 | Модуль | Назначение |
 |---|---|
-| `:core` | Чистая Kotlin/JVM-логика агента: фузия, severity, геометрия, кластеризация, смета, XLSX/GeoJSON. Без Android-зависимостей, полностью покрыта тестами. |
-| `:app` | Android: CameraX, акселерометр 200 Гц, GNSS, TFLite YOLOv8, Room, Compose UI, PDF, шаринг. |
+| `:core` | Чистая Kotlin/JVM-логика: фузия, severity, геометрия, кластеризация, смета, XLSX/GeoJSON, калибровка, лицензии. Без Android-зависимостей, покрыта тестами. |
+| `:app` | Android: CameraX, акселерометр 200 Гц, GNSS, TFLite YOLO, Room, Compose UI, PDF, TTS, шаринг. |
 
 ### Три контура агента
 
@@ -40,43 +54,72 @@ Android-приложение с автономным AI-агентом-орке�
 ┌──────────────────────── Action & Management ───────────────────────┐
 │ RoadScanAgent: IDLE→CALIBRATING→SCANNING↔THROTTLED→POST_PROCESSING │
 │ AdaptiveFrameGovernor: 30→15→6 FPS по нагреву/батарее              │
-│ Room: сессии и дефекты; PostProcessingAgent: кластеры + смета      │
+│ Room: сессии/дефекты/реквизиты; PostProcessingAgent: кластеры+смета│
 │ ExportManager: PDF-ведомость, Excel-смета, GeoJSON                 │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
+### Экраны
+
+* **Сканирование** — камера, телеметрия (FPS, кадры, дефекты, батарея, SoC, GPS,
+  диск), голосовые подсказки, старт/стоп смены.
+* **Отчёт** — KPI (площадь/фрезеровка/асфальт/смета), строки сметы, кластеры,
+  метрики, экспорт PDF/Excel/GeoJSON, список сохранённых смен.
+* **Настройки** — лицензия (активация/статус), калибровка камеры с калькулятором
+  фокуса, реквизиты документов (объект, дорога, заказчик, подрядчик, договор,
+  оператор, ТС, погода).
+
 ## Быстрый старт на телефоне
 
-1. Соберите `app-debug.apk` и установите: `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
+1. Установите APK: `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
 2. Выдайте разрешения CAMERA и ACCESS_FINE_LOCATION.
-3. Нажмите «Начать смену» — агент проверит GPS, диск и температуру.
-4. После поездки — «Завершить и рассчитать», затем PDF / Excel / GeoJSON.
+3. Заполните «Настройки» → калибровка и реквизиты (один раз на автомобиль/объект).
+4. «Начать смену» — агент проверит GPS, диск и температуру.
+5. После поездки — «Завершить и рассчитать», затем PDF / Excel / GeoJSON.
 
-### Модель YOLOv8
+## Модель YOLO
 
-Модель в репозиторий не входит (вес ~6–12 МБ). Положите TFLite-экспорт в
-`app/src/main/assets/roadscan_yolov8.tflite`:
+В `app/src/main/assets/roadscan_yolov8.tflite` лежит YOLO11n, обученная на
+RDD2022 (лицензия Apache-2.0), вход 640×640 float32, выход `[1, 10, 8400]`
+(4 координаты + 6 классов). Экспорт выполнен через ONNX → onnx2tf, потому что
+`litert-torch` требует Python ≥3.10.
 
-```bash
-yolo export model=roadscan.pt format=tflite imgsz=640 int8=False
-cp roadscan_saved_model/roadscan_float32.tflite app/src/main/assets/roadscan_yolov8.tflite
+Классы в `assets/labels.txt` (порядок важен):
+
+```
+longitudinal
+equal interval
+alligator
+pothole
+crosswalk blur
+whiteline blur
 ```
 
-Ожидаемые классы (`app/src/main/assets/labels.txt`): `pothole`, `crack_network`,
-`rutting`, `patch`, `manhole_cover`. Без модели приложение работает в режиме
-телеметрии: камера, GPS, акселерометр и UI живы, детекций нет.
+Маппинг: `pothole → Яма`, `alligator/longitudinal/equal interval → Сеть трещин`,
+`crosswalk blur` и `whiteline blur` — служебные классы разметки, отбрасываются.
+Модель можно заменить своим экспортом с тем же форматом выхода и тем же
+порядком классов.
 
-### Калибровка геометрии
+## Калибровка геометрии
 
-Точность площади 10–15% достигается после калибровки под конкретный автомобиль:
+Точность площади 10–15% достигается после калибровки под конкретный автомобиль
+(экран «Настройки»):
 
-* `AgentConfig.cameraHeightM` — высота камеры над дорогой (в `FrameAnalyzer`, по умолчанию 1.3 м);
-* `cameraPitchDeg` — наклон вниз (по умолчанию 8°);
-* `cameraFocalLengthPx` — фокусное в пикселях (`null` → 0.9 × ширины кадра).
+* `cameraHeightM` — высота оптического центра над дорогой;
+* `cameraPitchDeg` — наклон вниз;
+* `focalLengthPx` — фокусное в пикселях. Калькулятор: `f = w_px · Z / W`
+  (известная ширина объекта, дистанция, ширина в пикселях).
 
-Проверьте на участке с известной ямой: замерьте рулеткой/лазером и подберите
-`cameraFocalLengthPx`. Глубина оценивается по удару подвески (`depthBaseMm`,
-`depthMmPerG`) и калибруется на контрольных неровностях.
+Профиль сохраняется в SharedPreferences, применяется при старте каждой смены и
+печатается в шапке Excel/PDF как аудит методики.
+
+## Лицензирование
+
+* Формат ключа: `RSL1.<base64url(payload)>.<base64url(ECDSA P-256)>`.
+* Проверка — по встроенному публичному ключу, без сети.
+* Пробный период: 14 дней / 5 смен, документы с водяным знаком «ДЕМО».
+* Выпуск: `./tools/license.py issue --org "…" --tier PRO --days 365 --out key.txt`.
+  Закрытый ключ — `~/.config/opencode/secrets/roadscan-license-key.pem` (вне git).
 
 ## Соответствие ТЗ
 
@@ -90,16 +133,18 @@ cp roadscan_saved_model/roadscan_float32.tflite app/src/main/assets/roadscan_yol
 | 3.1 Adaptive FPS 42°C → 15/6 FPS | `AdaptiveFrameGovernor` | `AdaptiveFrameGovernorTest` |
 | 3.1 Visual-only | `ConfirmationStatus.UNCONFIRMED_VISUAL_ONLY` | `pothole without impact…` |
 | 3.2 Грязная линза, 10 кадров | `LensQualityMonitor` | `LensQualityMonitorTest`, `ten dirty frames…` |
-| 3.2 Батарея < 20% | `AgentConfig`, `AdaptiveFrameGovernor`, голосовое событие | `low battery…` |
+| 3.2 Батарея < 20% | `AgentConfig`, `AdaptiveFrameGovernor`, голосовое событие + TTS | `low battery…` |
 | 3.3 Кластеризация | `DefectClusterer` (DBSCAN на ENU, выпуклая оболочка) | `DefectClustererTest` |
 | 3.3 Смета V и M | `EstimateCalculator` | `EstimateCalculatorTest` |
 | 3.3 PDF / Excel / GeoJSON | `PdfReportGenerator`, `ReportXlsxBuilder`, `GeoJsonExporter` | `ReportExportTest` |
+| 3.3 Реквизиты в документах | `ReportMeta` | `work order details…` |
 | 4. Машина состояний | `AgentState`, `RoadScanAgent` | `RoadScanAgentTest` |
 | 5. Задержка < 45 мс | Ядро без I/O; `FrameAnalyzer` меряет latency | `stats.averageLatencyMs` |
 | 5. RAM / энергия | Буферы ограничены, Bitmap recycle, throttle | — (профилирование на устройстве) |
-| 6. Офлайн-first | Room + локальные файлы, нет сетевых вызовов | — |
+| 6. Офлайн-first | Room + локальные файлы, нет сетевых вызовов | — (авиарежим) |
 
-Полный протокол приёмки — `docs/ACCEPTANCE.md`.
+Полный протокол приёмки — `docs/ACCEPTANCE.md`, коммерческий пакет —
+`docs/COMMERCIAL.md`.
 
 ## Метрики и формулы
 
@@ -112,37 +157,45 @@ cp roadscan_saved_model/roadscan_float32.tflite app/src/main/assets/roadscan_yol
 
 ## Ограничения
 
-* Без обученной модели YOLOv8 детекций нет — это осознанно: репозиторий не тащит веса.
+* Модель обучена на RDD2022 (Япония/Индия/Чехия); для российских объектов нужна
+  дообучение/валидация на локальном датасете.
 * Монокулярная площадь зависит от калибровки; на невыровненной камере ошибка растёт.
 * Глубина по удару — калибруемая эвристика, не замена лазерному профилометру.
 * RTK: `LocationCollector.injectRtk(...)` — точка входа для внешнего приёмника по BLE/UART.
-* Phrase «голосовые предупреждения» реализованы как события `AgentEvent.VoicePrompt`;
-  TTS подключается в UI одним вызовом `TextToSpeech.speak`.
+* Для официальных сметных документов нужна аттестованная методика/поверка СИ —
+  см. `docs/COMMERCIAL.md`, раздел 6.
+* Полевые метрики (85% ложных, latency, энергопотребление) проверяются на
+  устройстве по протоколу приёмки.
 
 ## Структура
 
 ```
 core/src/main/kotlin/ai/roadscan/core/
   agent/        RoadScanAgent, PostProcessingAgent, AgentConfig
+  calibration/  CalibrationProfile (геометрия камеры, фокус)
   fusion/       SensorFusionEngine, SeverityScorer
   perception/   AdaptiveFrameGovernor, LensQualityMonitor
   geo/          GeoMath, MonocularAreaEstimator, DefectClusterer
   estimate/     PriceCatalog, EstimateCalculator
-  report/       XlsxWriter, ReportXlsxBuilder, GeoJsonExporter
+  report/       XlsxWriter, ReportXlsxBuilder, GeoJsonExporter, ReportMeta
+  license/      LicenseVerifier, LicenseState, Edition
 app/src/main/kotlin/ai/roadscan/app/
   perception/   YoloV8Detector, FrameAnalyzer, SensorCollector
   location/     LocationCollector
   telemetry/    TelemetryReader
-  data/         Room (сессии, дефекты), репозиторий
+  data/         Room (сессии, дефекты, реквизиты), репозиторий
+  settings/     SettingsStore (калибровка, реквизиты, лицензия)
   report/       PdfReportGenerator, ExportManager
-  ui/           Compose: экран сканирования и отчёт
+  ui/           Compose: сканирование, отчёт, настройки
+tools/          license.py — выпуск и проверка офлайн-лицензий
 ```
 
 ## Тесты
 
-59 тестов: фузия и окно ±50 мс, гистерезис троттлинга, линза, severity, геометрия,
+76 тестов: фузия и окно ±50 мс, гистерезис троттлинга, линза, severity, геометрия,
 DBSCAN/полигоны, формулы сметы, GeoJSON, валидность XLSX (парсинг всех XML-частей),
-производительность кластеризации 3000 точек и сметы на 10 000 кластеров (< 3 с).
+производительность кластеризации 3000 точек и сметы на 10 000 кластеров (< 3 с),
+проверка/истечение/подделка лицензий, калибровка и фокус.
 
 ```bash
 ./gradlew :core:test --rerun-tasks

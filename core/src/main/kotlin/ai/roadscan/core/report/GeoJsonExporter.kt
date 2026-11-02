@@ -1,6 +1,7 @@
 package ai.roadscan.core.report
 
 import ai.roadscan.core.agent.SessionReport
+import ai.roadscan.core.i18n.DocStrings
 import ai.roadscan.core.model.ConfirmationStatus
 import java.util.Locale
 
@@ -10,7 +11,11 @@ import java.util.Locale
  */
 object GeoJsonExporter {
 
-    fun export(report: SessionReport, includeVisualOnly: Boolean = true): String {
+    fun export(
+        report: SessionReport,
+        includeVisualOnly: Boolean = true,
+        strings: DocStrings = DocStrings.DEFAULT,
+    ): String {
         val features = mutableListOf<String>()
 
         for (cluster in report.clusters) {
@@ -25,7 +30,9 @@ object GeoJsonExporter {
                     "cluster_id" to cluster.id,
                     "session_id" to report.sessionId,
                     "type" to cluster.type.name,
+                    "type_name" to strings.defectType(cluster.type),
                     "status" to cluster.status.name,
+                    "status_label" to strings.confirmation(cluster.status),
                     "area_m2" to round(cluster.areaM2, 2),
                     "max_depth_mm" to round(cluster.maxDepthMm, 1),
                     "avg_depth_mm" to round(cluster.avgDepthMm, 1),
@@ -43,7 +50,9 @@ object GeoJsonExporter {
                         "cluster_id" to cluster.id,
                         "session_id" to report.sessionId,
                         "type" to cluster.type.name,
+                        "type_name" to strings.defectType(cluster.type),
                         "status" to ConfirmationStatus.UNCONFIRMED_VISUAL_ONLY.name,
+                        "status_label" to strings.confirmation(cluster.status),
                         "area_m2" to round(cluster.areaM2, 2),
                         "max_severity" to cluster.maxSeverity,
                         "defects" to cluster.defectCount,
@@ -57,7 +66,15 @@ object GeoJsonExporter {
             append("\"session_id\":\"${escape(report.sessionId)}\",")
             append("\"started_at_ms\":${report.startedAtMs},")
             append("\"ended_at_ms\":${report.endedAtMs},")
-            append("\"generator\":\"RoadScan AI Agent\"},\"features\":[")
+            append("\"generator\":\"RoadScan AI Agent\",")
+            append("\"locale\":\"${strings.locale}\",")
+            append("\"currency\":\"${escape(report.estimate.currency)}\",")
+            append("\"object_name\":\"${escape(report.meta.objectName)}\",")
+            append("\"road_name\":\"${escape(report.meta.roadName)}\",")
+            append("\"customer\":\"${escape(report.meta.customer)}\",")
+            append("\"contractor\":\"${escape(report.meta.contractor)}\",")
+            append("\"demo\":${report.meta.demo}")
+            append("},\"features\":[")
             append(features.joinToString(","))
             append("]}")
         }

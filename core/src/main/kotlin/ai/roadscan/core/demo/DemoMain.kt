@@ -12,6 +12,7 @@ import ai.roadscan.core.model.FrameData
 import ai.roadscan.core.model.GeoPoint
 import ai.roadscan.core.model.SensorPeak
 import ai.roadscan.core.model.VisionDetection
+import ai.roadscan.core.i18n.DocStrings
 import ai.roadscan.core.report.GeoJsonExporter
 import ai.roadscan.core.report.ReportXlsxBuilder
 import java.io.File
@@ -25,7 +26,8 @@ object DemoMain {
     @JvmStatic
     fun main(args: Array<String>) {
         val outDir = File(args.firstOrNull() ?: "build/demo").apply { mkdirs() }
-        val origin = GeoPoint(55.7558, 37.6173, 3f)
+        val origin = GeoPoint(50.4501, 30.5234, 3f) // Київ
+        val strings = DocStrings.Uk
         val config = AgentConfig.DEFAULT
 
         val events = mutableListOf<String>()
@@ -101,18 +103,21 @@ object DemoMain {
         val data = agent.finishSession() ?: error("session not finished")
         val report = PostProcessingAgent(config).process(data)
 
-        val xlsx = File(outDir, "${report.sessionId}.xlsx").apply { writeBytes(ReportXlsxBuilder.build(report)) }
-        val geojson = File(outDir, "${report.sessionId}.geojson").apply {
-            writeText(GeoJsonExporter.export(report))
+        val xlsx = File(outDir, "${report.sessionId}.xlsx").apply {
+            writeBytes(ReportXlsxBuilder.build(report, strings))
         }
+        val geojson = File(outDir, "${report.sessionId}.geojson").apply {
+            writeText(GeoJsonExporter.export(report, strings = strings))
+        }
+        val currency = strings.currencySymbol(report.estimate.currency)
 
-        println("=== RoadScan AI demo ===")
-        println("Дефектов подтверждено: $confirmed, visual-only: $visual")
-        println("Кластеров: ${report.clusters.size} (+${report.visualOnlyClusters.size} visual-only)")
-        println("Площадь: %.2f м²".format(report.estimate.totalAreaM2))
-        println("Фрезеровка: %.3f м³".format(report.estimate.totalMillingVolumeM3))
+        println("=== RoadScan AI · демонстраційна зміна ===")
+        println("Підтверджено дефектів: $confirmed, лише візуально: $visual")
+        println("Кластерів: ${report.clusters.size} (+${report.visualOnlyClusters.size} лише візуально)")
+        println("Площа: %.2f м²".format(report.estimate.totalAreaM2))
+        println("Фрезерування: %.3f м³".format(report.estimate.totalMillingVolumeM3))
         println("Асфальтобетон: %.3f т".format(report.estimate.totalAsphaltTons))
-        println("Смета: %.0f ₽".format(report.estimate.totalRub))
+        println("Кошторис: %.0f $currency".format(report.estimate.totalRub))
         println("Средняя задержка кадра: %.2f мс".format(report.stats.averageLatencyMs))
         println("XLSX: ${xlsx.absolutePath}")
         println("GeoJSON: ${geojson.absolutePath}")

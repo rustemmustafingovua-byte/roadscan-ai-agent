@@ -2,12 +2,16 @@ package ai.roadscan.app.ui
 
 import android.app.Application
 import android.content.Intent
+import android.speech.tts.TextToSpeech
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import ai.roadscan.app.R
 import ai.roadscan.app.RoadScanApp
 import ai.roadscan.app.data.SessionEntity
 import ai.roadscan.app.location.LocationCollector
 import ai.roadscan.app.perception.FrameAnalyzer
+import ai.roadscan.app.perception.OverlayDetection
 import ai.roadscan.app.perception.SensorCollector
 import ai.roadscan.app.perception.YoloV8Detector
 import ai.roadscan.app.report.ExportManager
@@ -18,9 +22,17 @@ import ai.roadscan.core.agent.PostProcessingAgent
 import ai.roadscan.core.agent.RoadScanAgent
 import ai.roadscan.core.agent.SessionReport
 import ai.roadscan.core.agent.SessionStats
+import ai.roadscan.core.calibration.CalibrationProfile
+import ai.roadscan.core.demo.DemoSession
+import ai.roadscan.core.i18n.CoreMessages
+import ai.roadscan.core.i18n.DocStrings
+import ai.roadscan.core.license.LicenseState
 import ai.roadscan.core.model.AgentEvent
 import ai.roadscan.core.model.AgentState
+import ai.roadscan.core.model.DefectType
 import ai.roadscan.core.model.EnvironmentSnapshot
+import ai.roadscan.core.model.GeoPoint
+import ai.roadscan.core.report.ReportMeta
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -31,6 +43,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 data class UiState(
     val running: Boolean = false,
@@ -50,38 +63,99 @@ data class UiState(
     val modelReady: Boolean = false,
     val busy: Boolean = false,
     val message: String? = null,
+    val calibration: CalibrationProfile = CalibrationProfile.DEFAULT,
+    val meta: ReportMeta = ReportMeta.EMPTY,
+    val license: LicenseState = LicenseState(),
+    val licenseSummary: String = "",
+    val canExport: Boolean = true,
+    // --- HUD ---
+    /** Рамки дефектов текущего кадра с устойчивыми подписями. */
+    val overlay: List<OverlayDetection> = emptyList(),
+    val frameWidth: Int = 0,
+    val frameHeight: Int = 0,
+    val frameContrast: Float = 0f,
+    val latencyMs: Double = 0.0,
+    val latitude: Double = Double.NaN,
+    val longitude: Double = Double.NaN,
+    val street: String = "",
+    val city: String = "",
+    /** Трек смены для мини-карты (последние ~2 км). */
+    val track: List<GeoPoint> = emptyList(),
+    /** Счётчик дефектов по типам для панели HUD. */
+    val breakdown: List<Pair<DefectType, Int>> = emptyList(),
+    val currencySymbol: String = "₴",
 )
 
 class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     private val container = (application as RoadScanApp).container
-    private val config: AgentConfig = container.config
+    private val settings = container.settings
+
+    private val language: String = Locale.getDefault().language
+    private val messages: CoreMessages = CoreMessages.of(language)
+    private val docStrings: DocStrings = DocStrings.of(language)
+
+    private var calibration: CalibrationProfile = settings.calibration()
+    private var meta: ReportMeta = settings.reportMeta()
+    private var license: LicenseState = settings.licenseState()
 
     private val detector = YoloV8Detector(application)
-    private val agent = RoadScanAgent(
-        config = config,
-        detector = detector,
-        eventListener = { event -> onAgentEvent(event) },
-    )
-    private val postProcessing = PostProcessingAgent(config, container.priceCatalog)
+
+    /** Агент пересобирается при изменении калибровки — без перезапуска приложения. */
+    private var agent: RoadScanAgent = buildAgent(calibration)
+    private var postProcessing = PostProcessingAgent(agent.config, container.priceCatalog)
+
     private val repository = container.repository
-    private val exports = ExportManager(application)
+    private val exports = ExportManager(application, docStrings)
 
     private val location = LocationCollector(application)
     private val telemetry = TelemetryReader(application, location)
-    private val sensors = SensorCollector(application, agent)
+    private val sensors = SensorCollector(application, { agent })
+
+    private var lastOverlayUpdateMs = 0L
 
     val analyzer = FrameAnalyzer(
-        agent = agent,
+        agentProvider = { agent },
+        calibrationProvider = { calibration },
         locationProvider = { location.latest },
         speedProvider = { location.speedKmh },
+        detectionsProvider = { detector.lastDetections },
+        onFrame = { metrics ->
+            val now = System.currentTimeMillis()
+            // 30 обновлений/с перерисовывать HUD незачем: 8–10 достаточно.
+            if (now - lastOverlayUpdateMs >= 100) {
+                lastOverlayUpdateMs = now
+                _state.update {
+                    it.copy(
+                        overlay = metrics.overlays,
+                        frameWidth = metrics.frameWidth,
+                        frameHeight = metrics.frameHeight,
+                        frameContrast = metrics.contrast,
+                        latencyMs = metrics.latencyMs,
+                        speedKmh = if (metrics.speedKmh > 0f) metrics.speedKmh else it.speedKmh,
+                    )
+                }
+            }
+        },
     )
 
-    private val _state = MutableStateFlow(UiState(modelReady = detector.isReady))
+    private val _state = MutableStateFlow(
+        UiState(
+            calibration = calibration,
+            meta = meta,
+            license = license,
+            licenseSummary = license.summary(System.currentTimeMillis(), messages),
+            canExport = license.canExport(),
+            modelReady = detector.isReady,
+            currencySymbol = docStrings.currencySymbol(container.priceCatalog.currency),
+        ),
+    )
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var ticker: Job? = null
-    private var pendingShare: Intent? = null
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+    private var lastSpokenAtMs = 0L
 
     init {
         viewModelScope.launch {
@@ -89,10 +163,44 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update { it.copy(sessions = sessions) }
             }
         }
+        initTts()
     }
+
+    private fun buildAgent(profile: CalibrationProfile): RoadScanAgent = RoadScanAgent(
+        config = profile.applyTo(container.config),
+        detector = detector,
+        eventListener = { event -> onAgentEvent(event) },
+        messages = messages,
+    )
+
+    private fun str(@StringRes id: Int, vararg args: Any): String =
+        getApplication<Application>().getString(id, *args)
+
+    // --- смена ---
 
     fun startSession() {
         if (_state.value.running) return
+        refreshLicense()
+        if (!license.canExport()) {
+            _state.update { it.copy(message = str(R.string.msg_trial_over)) }
+            return
+        }
+        if (license.payload?.maxSessions?.let { it > 0 && settings.sessionsTotal() >= it } == true) {
+            _state.update { it.copy(message = str(R.string.msg_session_limit)) }
+            return
+        }
+
+        if (!detector.isReady) {
+            _state.update { it.copy(modelReady = false) }
+        }
+
+        // Стартуем с актуальной калибровкой и реквизитами.
+        calibration = settings.calibration()
+        meta = settings.reportMeta()
+        agent = buildAgent(calibration)
+        postProcessing = PostProcessingAgent(agent.config, container.priceCatalog)
+        analyzer.resetTracking()
+
         location.start()
         val snapshot = telemetry.snapshot()
         val env = EnvironmentSnapshot(
@@ -109,7 +217,17 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         sensors.start()
-        _state.update { it.copy(running = true, agentState = agent.state) }
+        _state.update {
+            it.copy(
+                running = true,
+                agentState = agent.state,
+                calibration = calibration,
+                meta = meta,
+                overlay = emptyList(),
+                track = emptyList(),
+                breakdown = emptyList(),
+            )
+        }
         startTicker()
     }
 
@@ -117,15 +235,26 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         ticker?.cancel()
         ticker = null
         sensors.stop()
-        location.stop()
 
         val data = agent.finishSession()
         if (data == null) {
+            location.stop()
             _state.update { it.copy(running = false, agentState = agent.state) }
             return
         }
-        val report = postProcessing.process(data)
+        val report = postProcessing.process(
+            sessionId = data.sessionId,
+            startedAtMs = data.startedAtMs,
+            endedAtMs = data.endedAtMs,
+            defects = data.defects,
+            stats = data.stats,
+            meta = meta.copy(demo = !license.isLicensed(System.currentTimeMillis())),
+            calibration = calibration,
+        )
+        location.stop()
         agent.postProcessingDone()
+        settings.registerSession()
+        refreshLicense()
         _state.update {
             it.copy(
                 running = false,
@@ -133,7 +262,16 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 report = report,
                 confirmed = report.stats.confirmed,
                 visualOnly = report.stats.visualOnly,
-                events = (listOf("Смена завершена: ${report.clusters.size} кластеров, ${report.estimate.totalRub.toLong()} ₽") + it.events).take(8),
+                overlay = emptyList(),
+                events = (listOf(
+                    str(
+                        R.string.msg_session_done,
+                        report.clusters.size,
+                        report.estimate.totalRub.toLong(),
+                        docStrings.currencySymbol(report.estimate.currency),
+                    ),
+                ) + it.events).take(8),
+                meta = report.meta,
             )
         }
         viewModelScope.launch {
@@ -159,11 +297,20 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 val defects = agent.acceptedDefects
+                val breakdown = defects.groupingBy { it.type }.eachCount()
+                    .entries.sortedByDescending { it.value }
+                    .map { it.key to it.value }
+                val point = location.latest
                 _state.update {
+                    val track = if (point != null) {
+                        (it.track + point).takeLast(300)
+                    } else {
+                        it.track
+                    }
                     it.copy(
                         agentState = agent.state,
                         targetFps = agent.lastGovernorDecision.targetFps,
-                        speedKmh = snapshot.speedKmh,
+                        speedKmh = if (snapshot.speedKmh > 0f) snapshot.speedKmh else it.speedKmh,
                         batteryPercent = snapshot.batteryPercent,
                         cpuTempC = snapshot.cpuTempC,
                         gpsAccuracyM = location.accuracyM,
@@ -171,6 +318,12 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         frames = agent.statsSnapshot().framesAnalyzed,
                         confirmed = defects.count { d -> d.confirmed },
                         visualOnly = defects.count { d -> !d.confirmed },
+                        breakdown = breakdown,
+                        track = track,
+                        latitude = point?.lat ?: it.latitude,
+                        longitude = point?.lon ?: it.longitude,
+                        street = location.street ?: it.street,
+                        city = location.city ?: it.city,
                     )
                 }
                 delay(1_000)
@@ -179,40 +332,108 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun onAgentEvent(event: AgentEvent) {
-        val text = when (event) {
-            is AgentEvent.VoicePrompt -> event.message
-            is AgentEvent.LensDirty -> RoadScanAgent.LENS_WARNING
-            is AgentEvent.Error -> event.message
-            is AgentEvent.BatteryLow -> "Заряд батареи: ${event.percent}%"
-            is AgentEvent.ThermalThrottled -> "Троттлинг: ${event.targetFps} FPS (${event.cpuTempC.toInt()}°C)"
-            is AgentEvent.ThermalRecovered -> "Нагрев спал: ${event.targetFps} FPS"
-            else -> null
-        } ?: return
+        val (text, speak) = when (event) {
+            is AgentEvent.VoicePrompt -> event.message to true
+            is AgentEvent.LensDirty -> messages.lensWarning to true
+            is AgentEvent.Error -> event.message to false
+            is AgentEvent.BatteryLow -> str(R.string.msg_battery, event.percent) to true
+            is AgentEvent.ThermalThrottled ->
+                str(R.string.msg_thermal_throttle, event.targetFps, event.cpuTempC.toInt()) to false
+            is AgentEvent.ThermalRecovered -> str(R.string.msg_thermal_recovered, event.targetFps) to false
+            else -> null to false
+        }
+        if (text == null) return
         _state.update { it.copy(events = (listOf(text) + it.events).take(8)) }
+        if (speak) speak(text)
     }
+
+    // --- настройки ---
+
+    fun saveCalibration(profile: CalibrationProfile) {
+        calibration = profile.copy(calibratedAtMs = System.currentTimeMillis())
+        settings.saveCalibration(calibration)
+        postProcessing = PostProcessingAgent(calibration.applyTo(container.config), container.priceCatalog)
+        val error = calibration.validationErrors(messages).firstOrNull()
+        _state.update {
+            it.copy(
+                calibration = calibration,
+                message = if (error == null) {
+                    str(R.string.msg_calibration_saved)
+                } else {
+                    str(R.string.msg_calibration_error, error)
+                },
+            )
+        }
+    }
+
+    fun saveMeta(meta: ReportMeta) {
+        this.meta = meta.copy(demo = false)
+        settings.saveReportMeta(this.meta)
+        _state.update { it.copy(meta = this.meta, message = str(R.string.msg_meta_saved)) }
+    }
+
+    fun activateLicense(key: String) {
+        val code = settings.activate(key)
+        refreshLicense()
+        val text = if (code == null) {
+            str(R.string.msg_license_activated, license.summary(System.currentTimeMillis(), messages))
+        } else {
+            messages.licenseError(code)
+        }
+        _state.update { it.copy(message = text) }
+    }
+
+    fun deactivateLicense() {
+        settings.deactivate()
+        refreshLicense()
+        _state.update { it.copy(message = str(R.string.msg_license_removed)) }
+    }
+
+    fun refreshLicense() {
+        license = settings.licenseState()
+        _state.update {
+            it.copy(
+                license = license,
+                licenseSummary = license.summary(System.currentTimeMillis(), messages),
+                canExport = license.canExport(),
+            )
+        }
+    }
+
+    // --- экспорт ---
 
     fun export(format: ReportFormat) {
         val report = _state.value.report ?: return
+        refreshLicense()
+        val feature = when (format) {
+            ReportFormat.PDF -> "pdf"
+            ReportFormat.XLSX -> "xlsx"
+            ReportFormat.GEOJSON -> "geojson"
+        }
+        if (!license.hasFeature(feature)) {
+            _state.update { it.copy(message = str(R.string.msg_feature_unavailable, format.name)) }
+            return
+        }
+        val stamped = report.copy(meta = report.meta.copy(demo = !license.isLicensed(System.currentTimeMillis())))
         viewModelScope.launch {
             _state.update { it.copy(busy = true, message = null) }
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val file = exports.export(report, format)
+                    val file = exports.export(stamped, format)
                     file to exports.shareIntent(file, format)
                 }
             }
             _state.update { it.copy(busy = false) }
             result.onSuccess { (file, intent) ->
-                pendingShare = intent
-                _state.update { it.copy(message = "Готово: ${file.name}") }
+                _state.update { it.copy(message = str(R.string.msg_export_done, file.name)) }
                 runCatching {
-                    val chooser = Intent.createChooser(intent, "Отправить отчёт").apply {
+                    val chooser = Intent.createChooser(intent, str(R.string.share_chooser)).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     getApplication<Application>().startActivity(chooser)
                 }
             }.onFailure {
-                _state.update { it.copy(message = "Ошибка экспорта: ${it.message}") }
+                _state.update { it.copy(message = str(R.string.msg_export_error, it.message ?: "—")) }
             }
         }
     }
@@ -221,6 +442,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _state.update { it.copy(busy = true) }
             val defects = withContext(Dispatchers.IO) { repository.loadDefects(session.id) }
+            val (sessionMeta, sessionCalibration) = repository.metaOf(session)
             val report = postProcessing.process(
                 sessionId = session.id,
                 startedAtMs = session.startedAtMs,
@@ -230,6 +452,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     confirmed = session.confirmedCount,
                     visualOnly = session.visualOnlyCount,
                 ),
+                meta = sessionMeta,
+                calibration = sessionCalibration ?: calibration,
             )
             _state.update { it.copy(report = report, busy = false) }
         }
@@ -237,7 +461,67 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearMessage() {
         _state.update { it.copy(message = null) }
-        pendingShare = null
+    }
+
+    /**
+     * Демонстрационный отчёт: синтетическая смена + полный контур
+     * пост-обработки (кластеры, смета) и экспорт. Не попадает в базу сессий,
+     * поэтому не искажает статистику лицензии и реальные смены.
+     */
+    fun loadDemoReport() {
+        if (_state.value.running) {
+            _state.update { it.copy(message = str(R.string.msg_finish_first)) }
+            return
+        }
+        val data = DemoSession.build()
+        val demoMeta = if (meta.isFilled) meta else DemoSession.defaultMeta()
+        val report = postProcessing.process(
+            sessionId = data.sessionId,
+            startedAtMs = data.startedAtMs,
+            endedAtMs = data.endedAtMs,
+            defects = data.defects,
+            stats = data.stats,
+            meta = demoMeta.copy(demo = !license.isLicensed(System.currentTimeMillis())),
+            calibration = calibration,
+        )
+        _state.update {
+            it.copy(
+                report = report,
+                confirmed = report.stats.confirmed,
+                visualOnly = report.stats.visualOnly,
+                message = str(
+                    R.string.msg_demo_ready,
+                    report.clusters.size,
+                    report.estimate.totalRub.toLong(),
+                    docStrings.currencySymbol(report.estimate.currency),
+                ),
+            )
+        }
+    }
+
+    // --- голосовые подсказки ---
+
+    private fun initTts() {
+        val engine = TextToSpeech(getApplication()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts?.language = Locale("uk", "UA")
+                ttsReady = true
+            }
+        }
+        tts = engine
+    }
+
+    /** Не спамим: обычные подсказки — не чаще раза в 6 секунд, критические — сразу. */
+    private fun speak(text: String) {
+        if (!ttsReady) return
+        val now = System.currentTimeMillis()
+        val critical = text.contains("Протріть", ignoreCase = true) ||
+            text.contains("Протрите", ignoreCase = true) ||
+            text.contains("заряд", ignoreCase = true) ||
+            text.contains("Заряд", ignoreCase = true)
+        if (!critical && now - lastSpokenAtMs < 6_000) return
+        lastSpokenAtMs = now
+        tts?.speak(text, if (critical) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "rs-$now")
     }
 
     override fun onCleared() {
@@ -245,6 +529,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         sensors.stop()
         location.stop()
         detector.close()
+        tts?.stop()
+        tts?.shutdown()
+        tts = null
         super.onCleared()
     }
 }

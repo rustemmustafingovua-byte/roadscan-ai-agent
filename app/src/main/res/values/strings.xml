@@ -1,4 +1,245 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">RoadScan AI</string>
+    <string name="app_name">RoadScan AI Agent</string>
+
+    <!-- навигация -->
+    <string name="nav_scan">Сканування</string>
+    <string name="nav_report">Звіт</string>
+    <string name="nav_settings">Налаштування</string>
+
+    <!-- экран сканирования -->
+    <string name="camera_off_title">Камеру вимкнено</string>
+    <string name="camera_off_hint">Почніть зміну — агент перевірить GPS, диск і температуру</string>
+    <string name="model_name">YOLOv8</string>
+    <string name="model_missing">модель не знайдено</string>
+    <string name="speed_format">%1$.0f км/год</string>
+    <string name="metric_fps">FPS</string>
+    <string name="metric_frames">Кадри</string>
+    <string name="metric_confirmed">Підтв.</string>
+    <string name="metric_visual">Візуальні</string>
+    <string name="metric_battery">Батарея</string>
+    <string name="metric_soc">SoC</string>
+    <string name="metric_gps">GPS</string>
+    <string name="metric_disk">Диск</string>
+    <string name="metric_disk_value">%1$d МБ</string>
+    <string name="metric_none">—</string>
+    <string name="metric_gps_none">немає</string>
+    <string name="metric_gps_value">±%1$.0f м</string>
+    <string name="metric_percent">%1$d%%</string>
+    <string name="action_start">Почати зміну</string>
+    <string name="action_stop">Завершити та розрахувати</string>
+
+    <!-- состояния агента -->
+    <string name="state_idle">Очікування</string>
+    <string name="state_calibrating">Калібрування</string>
+    <string name="state_scanning">Сканування</string>
+    <string name="state_throttled">Тротлінг</string>
+    <string name="state_post_processing">Обробка</string>
+    <string name="state_error">Помилка</string>
+
+    <!-- отчёт -->
+    <string name="report_title">Звіт</string>
+    <string name="report_subtitle">Офлайн-аналітика: кластери, кошторис, GeoJSON</string>
+    <string name="report_empty_title">Поки немає активного звіту</string>
+    <string name="report_empty_hint">Завершіть зміну або відкрийте збережену сесію нижче.</string>
+    <string name="report_kpi_area">Площа</string>
+    <string name="report_kpi_milling">Фрезерування</string>
+    <string name="report_kpi_asphalt">Асфальт</string>
+    <string name="report_kpi_estimate">Кошторис</string>
+    <string name="report_area_value">%1$.1f м²</string>
+    <string name="report_milling_value">%1$.2f м³</string>
+    <string name="report_asphalt_value">%1$.2f т</string>
+    <string name="report_money_value">%1$.0f %2$s</string>
+    <string name="report_total_with_vat">РАЗОМ: %1$.0f %2$s (з ПДВ)</string>
+    <string name="report_line_detail">%1$.2f %2$s × %3$.2f %4$s</string>
+    <string name="report_export_busy">Формую документи…</string>
+    <string name="report_clusters_title">Кластери (%1$d)</string>
+    <string name="report_cluster_detail">%1$.2f м² · %2$.0f мм · критичність %3$d</string>
+    <string name="report_more">… ще %1$d</string>
+    <string name="report_metrics_title">Метрики</string>
+    <string name="report_metric_duration">Час зміни</string>
+    <string name="report_metric_duration_value">%1$d хв</string>
+    <string name="report_metric_frames">Кадрів оброблено</string>
+    <string name="report_metric_false">Відфільтровано хибних</string>
+    <string name="report_metric_dupes">Дублікатів об\'єднано</string>
+    <string name="report_metric_latency">Затримка кадру</string>
+    <string name="report_metric_latency_value">%1$.1f мс</string>
+    <string name="report_sessions">Збережені сесії (%1$d)</string>
+    <string name="report_demo_synthetic">Демонстраційні дані: еталонна ділянка, не реальна зйомка.</string>
+    <string name="report_demo_watermark">Документи будуть з водяним знаком «ДЕМО» — активуйте ліцензію.</string>
+
+    <!-- типы дефектов -->
+    <string name="type_pothole">Вибій</string>
+    <string name="type_crack">Сітка тріщин</string>
+    <string name="type_rutting">Колійність</string>
+    <string name="type_patch">Латка</string>
+    <string name="type_manhole">Люк</string>
+    <string name="type_unknown">Невідомо</string>
+    <string name="status_confirmed">підтверджено</string>
+    <string name="status_visual">лише візуально</string>
+
+    <!-- настройки -->
+    <string name="settings_title">Налаштування</string>
+    <string name="settings_subtitle">Ліцензія, калібрування камери та реквізити документів</string>
+    <string name="settings_license">Ліцензія</string>
+    <string name="settings_license_active">активна</string>
+    <string name="settings_license_trial">пробний режим</string>
+    <string name="settings_license_demo_hint">Документи будуть з водяним знаком «ДЕМО».</string>
+    <string name="settings_license_key_label">Ключ ліцензії RSL1…</string>
+    <string name="settings_license_activate">Активувати</string>
+    <string name="settings_license_remove">Видалити ключ</string>
+    <string name="settings_calibration">Калібрування камери</string>
+    <string name="settings_calibration_hint">Висота камери над дорогою, нахил униз і фокусна відстань визначають точність площі (ціль ±10–15%).</string>
+    <string name="settings_calibration_profile">Профіль</string>
+    <string name="settings_calibration_height">Висота, м</string>
+    <string name="settings_calibration_pitch">Нахил, °</string>
+    <string name="settings_calibration_focal">Фокус, px</string>
+    <string name="settings_calibration_vehicle">ТЗ</string>
+    <string name="settings_calibration_depth_base">База глибини, мм</string>
+    <string name="settings_calibration_depth_per_g">мм на 1 g</string>
+    <string name="settings_calibration_focal_title">Калькулятор фокуса за контрольним заміром</string>
+    <string name="settings_calibration_focal_hint">Відома ширина об\'єкта (колія 1.57 м), дистанція до нього та ширина в пікселях.</string>
+    <string name="settings_calibration_width">Ширина, м</string>
+    <string name="settings_calibration_distance">Дистанція, м</string>
+    <string name="settings_calibration_pixels">Пікселі</string>
+    <string name="settings_calibration_focal_value">f ≈ %1$.0f px</string>
+    <string name="settings_calibration_focal_invalid">Введіть коректні значення</string>
+    <string name="settings_calibration_apply">Підставити</string>
+    <string name="settings_calibration_save">Зберегти калібрування</string>
+    <string name="settings_meta">Реквізити документів</string>
+    <string name="settings_meta_hint">Потрапляють у шапку PDF, Excel і GeoJSON — без них відомість неможливо погодити.</string>
+    <string name="settings_meta_object">Об\'єкт / ділянка</string>
+    <string name="settings_meta_road">Дорога, км</string>
+    <string name="settings_meta_customer">Замовник</string>
+    <string name="settings_meta_contractor">Підрядник</string>
+    <string name="settings_meta_contract">Договір</string>
+    <string name="settings_meta_operator">Оператор</string>
+    <string name="settings_meta_vehicle">ТЗ, номерний знак</string>
+    <string name="settings_meta_weather">Погода</string>
+    <string name="settings_meta_save">Зберегти реквізити</string>
+    <string name="settings_demo">Демонстрація</string>
+    <string name="settings_demo_hint">Сформувати звіт за еталонною ділянкою 4.8 км: кластери, кошторис, PDF/Excel/GeoJSON. Зручно для показу замовнику та навчання операторів.</string>
+    <string name="settings_demo_action">Сформувати демо-звіт</string>
+    <string name="settings_footer">RoadScan AI Agent · офлайн-обробка, дані не залишають пристрій</string>
+
+    <!-- HUD -->
+    <string name="hud_title">ROAD SCANNER AI</string>
+    <string name="hud_city_unknown">КИЇВ</string>
+    <string name="hud_speed_unit">км/год</string>
+    <string name="hud_street_unknown">Визначення вулиці…</string>
+    <string name="hud_coords">%1$.5f° %2$s · %3$.5f° %4$s</string>
+    <string name="hud_road_surface">ПОКРИТТЯ</string>
+    <string name="hud_defects">ДЕФЕКТИ</string>
+    <string name="hud_system">СИСТЕМА</string>
+    <string name="hud_map">МАРШРУТ</string>
+    <string name="hud_map_empty">Маршрут з\'явиться після старту зміни</string>
+    <string name="hud_no_defects">Дефектів не виявлено</string>
+    <string name="hud_quality_good">ДОБРЕ</string>
+    <string name="hud_quality_fair">ЗАДОВІЛЬНЕ</string>
+    <string name="hud_quality_poor">КРИТИЧНЕ</string>
+    <string name="hud_percent">%1$d%%</string>
+    <string name="hud_battery">Батарея</string>
+    <string name="hud_temp">Нагрів</string>
+    <string name="hud_gps">GPS</string>
+    <string name="hud_fps">FPS</string>
+    <string name="hud_latency">Затримка</string>
+    <string name="hud_latency_value">%1$.0f мс</string>
+    <string name="hud_counters">%1$d кадрів · %2$d підтв. · %3$d візуальних</string>
+
+    <!-- разрешения -->
+    <string name="permission_hint">Потрібен доступ до камери для аналізу дорожнього покриття та до геолокації для прив\'язки дефектів.</string>
+    <string name="permission_action">Дозволити доступ</string>
+    <string name="permission_gps_granted">GPS дозволено</string>
+
+    <!-- редакции лицензии -->
+    <string name="edition_trial">Пробний період</string>
+    <string name="edition_pilot">Пілот</string>
+    <string name="edition_pro">Pro</string>
+    <string name="edition_enterprise">Enterprise</string>
+
+    <!-- сообщения -->
+    <string name="msg_trial_over">Пробний період завершився. Активуйте ліцензію в налаштуваннях.</string>
+    <string name="msg_session_limit">Ліміт змін за ліцензією вичерпано. Зверніться до постачальника.</string>
+    <string name="msg_session_done">Зміну завершено: %1$d кластерів, %2$d %3$s</string>
+    <string name="msg_calibration_saved">Калібрування збережено</string>
+    <string name="msg_calibration_error">Перевірте параметри: %1$s</string>
+    <string name="msg_meta_saved">Реквізити документів збережено</string>
+    <string name="msg_license_activated">Ліцензію активовано: %1$s</string>
+    <string name="msg_license_removed">Ключ видалено, увімкнено пробний режим</string>
+    <string name="msg_feature_unavailable">Формат %1$s недоступний у поточній ліцензії</string>
+    <string name="msg_export_done">Готово: %1$s</string>
+    <string name="msg_export_error">Помилка експорту: %1$s</string>
+    <string name="msg_demo_ready">Демо-звіт готовий: %1$d кластерів, %2$d %3$s</string>
+    <string name="msg_finish_first">Спершу завершіть поточну зміну</string>
+    <string name="msg_battery">Заряд батареї: %1$d%%</string>
+    <string name="msg_thermal_throttle">Тротлінг: %1$d FPS (%2$d °C)</string>
+    <string name="msg_thermal_recovered">Нагрів спав: %1$d FPS</string>
+    <string name="share_chooser">Надіслати звіт</string>
+
+    <!-- відеостудія -->
+    <string name="nav_video">Відео</string>
+    <string name="video_title">Відеостудія</string>
+    <string name="video_subtitle">Сире відео → автоматичний пошук дефектів → готовий ролик</string>
+    <string name="video_no_video">Відео не обрано</string>
+    <string name="video_no_video_hint">Оберіть файл із галереї або файлового менеджера. Уся обробка йде офлайн на пристрої.</string>
+    <string name="video_pick">Обрати відео</string>
+    <string name="video_change">Змінити відео</string>
+    <string name="video_mode">Формат результату</string>
+    <string name="video_mode_highlights">Короткий огляд</string>
+    <string name="video_mode_full">Повне відео</string>
+    <string name="video_mode_highlights_hint">Найкращі моменти з дефектами: 45–75 секунд, титул і підсумок.</string>
+    <string name="video_mode_full_hint">Усе відео з рамками (до 5 хв). Обробка триває довше.</string>
+    <string name="video_start">Зробити ролик</string>
+    <string name="video_cancel">Скасувати</string>
+    <string name="video_stage_probe">Читаю відео…</string>
+    <string name="video_stage_prepare">Готую монтаж…</string>
+    <string name="video_stage_analyze">Аналіз кадрів: %1$d%%</string>
+    <string name="video_stage_render">Монтаж і кодування: %1$d%%</string>
+    <plurals name="video_result_defects">
+        <item quantity="one">%d дефект</item>
+        <item quantity="few">%d дефекти</item>
+        <item quantity="many">%d дефектів</item>
+        <item quantity="other">%d дефектів</item>
+    </plurals>
+    <plurals name="video_result_segments">
+        <item quantity="one">%d фрагмент</item>
+        <item quantity="few">%d фрагменти</item>
+        <item quantity="many">%d фрагментів</item>
+        <item quantity="other">%d фрагментів</item>
+    </plurals>
+    <string name="video_result_title">Ролик готовий</string>
+    <string name="video_share">Поділитися</string>
+    <string name="video_again">Новий ролик</string>
+    <string name="video_error">Не вдалося обробити відео: %1$s</string>
+    <string name="video_untitled">Відео</string>
+    <string name="video_offline_note">Обробка повністю офлайн: відео не залишає пристрій.</string>
+    <string name="video_keep_open">Не закривайте застосунок під час обробки.</string>
+    <string name="video_duration_row">Тривалість</string>
+    <string name="video_resolution_row">Роздільність</string>
+    <string name="video_share_chooser">Надіслати ролик</string>
+    <string name="video_no_defects_done">Дефектів не виявлено — сформовано коротке відео-підтвердження.</string>
+    <string name="video_preview">Попередній перегляд</string>
+    <string name="video_watermark_demo">Ролик буде з водяним знаком «ДЕМО» — активуйте ліцензію.</string>
+
+    <!-- титри ролика -->
+    <string name="video_brand_subtitle">АВТООГЛЯД ПОШКОДЖЕНЬ</string>
+    <string name="video_intro_kicker">ROADSCAN AI · ВІДЕОСТУДІЯ</string>
+    <string name="video_intro_title">Автоматичний огляд дорожнього покриття</string>
+    <string name="video_intro_subtitle">Сире відео оброблено нейромережею на пристрої</string>
+    <string name="video_intro_mode_highlights">Короткий огляд: найкращі моменти</string>
+    <string name="video_intro_mode_full">Повне відео з розміткою</string>
+    <string name="video_intro_source">Джерело: %1$s</string>
+    <string name="video_intro_date">Дата: %1$s</string>
+    <string name="video_intro_duration">Тривалість: %1$s</string>
+    <string name="video_intro_defects">Виявлено дефектів: %1$d</string>
+    <string name="video_summary_title">Підсумок огляду</string>
+    <string name="video_summary_note">Візуальна фіксація дефектів. Площі, обсяги та кошторис — у звіті PDF/Excel.</string>
+    <string name="video_caption_time">Час у відео: %1$s</string>
+    <string name="video_caption_confidence">Впевненість %1$d%%</string>
+    <string name="video_caption_severity">Критичність %1$d/5</string>
+    <string name="video_fragment">Фрагмент %1$d/%2$d</string>
+    <string name="video_no_defects_card">Дефектів не виявлено</string>
+    <string name="video_no_defects_hint">На цьому відео нейромережа не знайшла пошкоджень. Перевірте ракурс, освітлення та якість запису.</string>
+    <string name="video_demo_mark">ДЕМО</string>
+    <string name="video_offline_card">Оброблено офлайн на пристрої</string>
 </resources>

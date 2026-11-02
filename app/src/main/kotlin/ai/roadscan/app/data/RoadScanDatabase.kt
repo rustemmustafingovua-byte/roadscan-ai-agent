@@ -1,5 +1,6 @@
 package ai.roadscan.app.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -10,6 +11,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "sessions")
@@ -22,6 +25,10 @@ data class SessionEntity(
     val totalAreaM2: Double,
     val totalRub: Double,
     val createdAtMs: Long,
+    /** Реквизиты объекта/договора (JSON ReportMeta). */
+    @ColumnInfo(defaultValue = "") val metaJson: String = "",
+    /** Профиль калибровки, с которым выполнена смена (JSON). */
+    @ColumnInfo(defaultValue = "") val calibrationJson: String = "",
 )
 
 @Entity(
@@ -75,9 +82,19 @@ interface RoadScanDao {
 
 @Database(
     entities = [SessionEntity::class, DefectEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class RoadScanDatabase : RoomDatabase() {
     abstract fun dao(): RoadScanDao
+
+    companion object {
+        /** v2: реквизиты документов и калибровка в сохранённой смене. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sessions ADD COLUMN metaJson TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE sessions ADD COLUMN calibrationJson TEXT NOT NULL DEFAULT ''")
+            }
+        }
+    }
 }

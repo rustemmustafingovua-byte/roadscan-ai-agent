@@ -1,5 +1,6 @@
+longitudinal
+equal interval
+alligator
 pothole
-crack_network
-rutting
-patch
-manhole_cover
+crosswalk blur
+whiteline blur

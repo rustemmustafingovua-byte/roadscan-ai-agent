@@ -3,6 +3,7 @@ package ai.roadscan.core.agent
 import ai.roadscan.core.estimate.EstimateCalculator
 import ai.roadscan.core.estimate.PriceCatalog
 import ai.roadscan.core.geo.DefectClusterer
+import ai.roadscan.core.report.ReportMeta
 
 /**
  * Аналитический контур: кластеризация + смета + подготовка отчёта.
@@ -24,6 +25,8 @@ class PostProcessingAgent(
         endedAtMs: Long,
         defects: List<ai.roadscan.core.model.DefectRecord>,
         stats: SessionStats,
+        meta: ReportMeta = ReportMeta.EMPTY,
+        calibration: ai.roadscan.core.calibration.CalibrationProfile? = null,
     ): SessionReport {
         val clusters = clusterer.cluster(defects)
         val confirmed = clusters.filter { it.confirmed }
@@ -39,6 +42,8 @@ class PostProcessingAgent(
             visualOnlyClusters = visualOnly,
             estimate = estimate,
             stats = stats,
+            meta = meta,
+            calibration = calibration,
         )
     }
 }

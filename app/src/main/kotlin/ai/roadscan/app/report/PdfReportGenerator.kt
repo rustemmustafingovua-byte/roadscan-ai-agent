@@ -5,17 +5,19 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import ai.roadscan.core.agent.SessionReport
-import ai.roadscan.core.model.DefectType
+import ai.roadscan.core.i18n.DocStrings
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.max
 
 /**
- * PDF-ведомость на android.graphics.pdf.PdfDocument — без сторонних библиотек
- * и без сети. A4 595×842 pt, автоматическая разбивка на страницы.
+ * PDF-відомість на android.graphics.pdf.PdfDocument — без сторонніх бібліотек
+ * і без мережі. A4 595×842 pt, автоматичне розбиття на сторінки.
+ *
+ * Мова та валюта беруться з [DocStrings]: для України — українська
+ * термінологія і гривня, для РФ — російська і рубль.
  */
-class PdfReportGenerator {
+class PdfReportGenerator(private val strings: DocStrings = DocStrings.DEFAULT) {
 
     private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(20, 24, 30)
@@ -51,33 +53,64 @@ class PdfReportGenerator {
         val document = PdfDocument()
         val writer = Writer(document)
         writer.startPage()
+        val s = strings
+        val currency = s.currencySymbol(report.estimate.currency)
 
-        writer.text("RoadScan AI · Ведомость дефектов", titlePaint, 40f, 56f)
+        writer.text("RoadScan AI · ${s.reportTitle}", titlePaint, 40f, 56f)
         writer.text(
-            "Сессия ${report.sessionId} · ${format(report.startedAtMs)} — ${format(report.endedAtMs)}",
+            "${s.sessionLabel} ${report.sessionId} · ${format(report.startedAtMs)} — ${format(report.endedAtMs)}",
             subtitlePaint,
             40f,
             72f,
         )
 
         var y = 96f
-        y = summary(writer, report, y)
-        y = estimate(writer, report, y + 10f)
-        clusters(writer, report, y + 10f)
+        val meta = report.meta
+        val metaLines = buildList {
+            meta.objectName.takeIf { it.isNotBlank() }?.let { add("${s.objectLabel}: $it") }
+            meta.roadName.takeIf { it.isNotBlank() }?.let { add("${s.roadLabel}: $it") }
+            meta.customer.takeIf { it.isNotBlank() }?.let { add("${s.customerLabel}: $it") }
+            meta.contractor.takeIf { it.isNotBlank() }?.let { add("${s.contractorLabel}: $it") }
+            meta.contractNumber.takeIf { it.isNotBlank() }?.let { add("${s.contractLabel}: $it") }
+            listOfNotNull(
+                meta.operatorName.takeIf { it.isNotBlank() }?.let { "${s.operatorLabel}: $it" },
+                meta.vehicle.takeIf { it.isNotBlank() }?.let { "${s.vehicleLabel}: $it" },
+                meta.weather.takeIf { it.isNotBlank() }?.let { "${s.weatherLabel}: $it" },
+            ).takeIf { it.isNotEmpty() }?.let { add(it.joinToString(" · ")) }
+        }
+        metaLines.forEach { line ->
+            writer.text(clip(line, 110), bodyPaint, 40f, y)
+            y += 11f
+        }
+        if (metaLines.isNotEmpty()) y += 4f
+
+        y = summary(writer, report, y, currency)
+        y = estimate(writer, report, y + 10f, currency)
+        clusters(writer, report, y + 10f, currency)
+
+        writer.demo = report.meta.demo
+        writer.calibrationNote = report.calibration?.let {
+            val pitch = if (s.locale == "uk") "нахил" else "наклон"
+            "${s.calibrationLabel}: H=%.2f м, $pitch=%.1f°, f=%s".format(
+                it.cameraHeightM,
+                it.cameraPitchDeg,
+                it.focalLengthPx?.let { f -> "%.0f px".format(f) } ?: s.calibrationEstimate,
+            )
+        }
 
         writer.finish()
         return writer.toByteArray()
     }
 
-    private fun summary(writer: Writer, report: SessionReport, startY: Float): Float {
+    private fun summary(writer: Writer, report: SessionReport, startY: Float, currency: String): Float {
         var y = startY
-        writer.text("Сводка", bodyBoldPaint, 40f, y)
+        writer.text(strings.summaryTitle, bodyBoldPaint, 40f, y)
         y += 8f
         val cards = listOf(
-            "Площадь" to "%.1f м²".format(Locale.US, report.estimate.totalAreaM2),
-            "Фрезеровка" to "%.2f м³".format(Locale.US, report.estimate.totalMillingVolumeM3),
-            "Асфальтобетон" to "%.2f т".format(Locale.US, report.estimate.totalAsphaltTons),
-            "Смета" to "%.0f ₽".format(Locale.US, report.estimate.totalRub),
+            strings.areaLabel to "%.1f м²".format(report.estimate.totalAreaM2),
+            strings.millingLabel to "%.2f м³".format(report.estimate.totalMillingVolumeM3),
+            strings.asphaltLabel to "%.2f т".format(report.estimate.totalAsphaltTons),
+            strings.estimateLabel to "%.0f $currency".format(report.estimate.totalRub),
         )
         val cardWidth = 125f
         cards.forEachIndexed { index, (label, value) ->
@@ -88,8 +121,9 @@ class PdfReportGenerator {
         }
         y += 58f
         writer.text(
-            "Подтверждено: ${report.stats.confirmed} · Visual-only: ${report.stats.visualOnly} · " +
-                "Кластеров: ${report.clusters.size}",
+            "${strings.confirmedLabel}: ${report.stats.confirmed} · " +
+                "${strings.visualOnlyLabel}: ${report.stats.visualOnly} · " +
+                "${strings.clustersLabel}: ${report.clusters.size}",
             bodyPaint,
             40f,
             y,
@@ -97,27 +131,27 @@ class PdfReportGenerator {
         return y + 10f
     }
 
-    private fun estimate(writer: Writer, report: SessionReport, startY: Float): Float {
+    private fun estimate(writer: Writer, report: SessionReport, startY: Float, currency: String): Float {
         var y = startY
-        writer.text("Смета", bodyBoldPaint, 40f, y)
-        y += 14f
         val columns = floatArrayOf(40f, 88f, 360f, 400f, 470f, 530f)
-        writer.tableHeader(
-            y,
-            listOf("Код", "Наименование", "Ед.", "Кол-во", "Цена, ₽", "Сумма, ₽"),
-            columns,
+        val headers = listOf(
+            strings.codeColumn,
+            strings.nameColumn,
+            strings.unitColumn,
+            strings.quantityColumn,
+            "${strings.priceColumn}, $currency",
+            "${strings.amountColumn}, $currency",
         )
+        writer.text(strings.estimateTitle, bodyBoldPaint, 40f, y)
+        y += 14f
+        writer.tableHeader(y, headers, columns)
         y += 16f
 
         for (line in report.estimate.lines) {
             if (writer.needsNewPage(y, 20f)) {
                 writer.newPage()
                 y = 56f
-                writer.tableHeader(
-                    y,
-                    listOf("Код", "Наименование", "Ед.", "Кол-во", "Цена, ₽", "Сумма, ₽"),
-                    columns,
-                )
+                writer.tableHeader(y, headers, columns)
                 y += 16f
             }
             val name = clip(line.name, 44)
@@ -125,16 +159,22 @@ class PdfReportGenerator {
             writer.text(line.code, bodyPaint, columns[0] + 2f, y + 10f)
             writer.text(name, bodyPaint, columns[1] + 2f, y + 10f)
             writer.text(line.unit, bodyPaint, columns[2] + 2f, y + 10f)
-            writer.text("%.2f".format(Locale.US, line.quantity), bodyPaint, columns[3] + 2f, y + 10f)
-            writer.text("%.2f".format(Locale.US, line.unitPriceRub), bodyPaint, columns[4] + 2f, y + 10f)
-            writer.text("%.2f".format(Locale.US, line.totalRub), bodyPaint, columns[5] + 2f, y + 10f)
+            writer.text("%.2f".format(line.quantity), bodyPaint, columns[3] + 2f, y + 10f)
+            writer.text("%.2f".format(line.unitPriceRub), bodyPaint, columns[4] + 2f, y + 10f)
+            writer.text("%.2f".format(line.totalRub), bodyPaint, columns[5] + 2f, y + 10f)
             y += 16f
         }
 
         y += 4f
+        val vatText = if (strings.locale == "uk") {
+            "${strings.subtotalLabel}: %.2f $currency · ${strings.vatLabel} %.0f%%: %.2f $currency · " +
+                "${strings.totalLabel}: %.2f $currency"
+        } else {
+            "${strings.subtotalLabel}: %.2f $currency · ${strings.vatLabel} %.0f%%: %.2f $currency · " +
+                "${strings.totalLabel}: %.2f $currency"
+        }
         writer.text(
-            "Итого без НДС: %.2f ₽ · НДС %.0f%%: %.2f ₽ · ВСЕГО: %.2f ₽".format(
-                Locale.US,
+            vatText.format(
                 report.estimate.subtotalRub,
                 report.estimate.vatRate * 100,
                 report.estimate.vatRub,
@@ -147,12 +187,21 @@ class PdfReportGenerator {
         return y + 18f
     }
 
-    private fun clusters(writer: Writer, report: SessionReport, startY: Float): Float {
+    private fun clusters(writer: Writer, report: SessionReport, startY: Float, currency: String): Float {
         var y = startY
-        writer.text("Ведомость кластеров", bodyBoldPaint, 40f, y)
-        y += 14f
         val columns = floatArrayOf(40f, 90f, 200f, 260f, 320f, 380f, 470f, 520f)
-        val headers = listOf("ID", "Тип", "Статус", "Площадь", "Глуб. макс", "Критичность", "Широта", "Долгота")
+        val headers = listOf(
+            strings.idColumn,
+            strings.typeColumn,
+            strings.statusColumn,
+            "${strings.areaLabel}, м²",
+            strings.maxDepthColumn,
+            strings.severityColumn,
+            strings.latitudeColumn,
+            strings.longitudeColumn,
+        )
+        writer.text(strings.registerTitle, bodyBoldPaint, 40f, y)
+        y += 14f
         writer.tableHeader(y, headers, columns)
         y += 16f
 
@@ -166,35 +215,21 @@ class PdfReportGenerator {
             }
             writer.row(y)
             writer.text(cluster.id, bodyPaint, columns[0] + 2f, y + 10f)
-            writer.text(typeName(cluster.type), bodyPaint, columns[1] + 2f, y + 10f)
-            writer.text(if (cluster.confirmed) "confirmed" else "visual-only", bodyPaint, columns[2] + 2f, y + 10f)
-            writer.text("%.2f м²".format(Locale.US, cluster.areaM2), bodyPaint, columns[3] + 2f, y + 10f)
-            writer.text("%.1f мм".format(Locale.US, cluster.maxDepthMm), bodyPaint, columns[4] + 2f, y + 10f)
+            writer.text(strings.defectType(cluster.type), bodyPaint, columns[1] + 2f, y + 10f)
+            writer.text(strings.confirmation(cluster.status), bodyPaint, columns[2] + 2f, y + 10f)
+            writer.text("%.2f м²".format(cluster.areaM2), bodyPaint, columns[3] + 2f, y + 10f)
+            writer.text("%.1f мм".format(cluster.maxDepthMm), bodyPaint, columns[4] + 2f, y + 10f)
             writer.text(cluster.maxSeverity.toString(), bodyPaint, columns[5] + 2f, y + 10f)
-            writer.text("%.6f".format(Locale.US, cluster.center.lat), bodyPaint, columns[6] + 2f, y + 10f)
-            writer.text("%.6f".format(Locale.US, cluster.center.lon), bodyPaint, columns[7] + 2f, y + 10f)
+            writer.text("%.6f".format(cluster.center.lat), bodyPaint, columns[6] + 2f, y + 10f)
+            writer.text("%.6f".format(cluster.center.lon), bodyPaint, columns[7] + 2f, y + 10f)
             y += 16f
         }
 
         if (report.visualOnlyClusters.isNotEmpty()) {
             y += 6f
-            writer.text(
-                "Visual-only кластеры в смету не включены (нет удара подвески).",
-                subtitlePaint,
-                40f,
-                y,
-            )
+            writer.text(strings.visualOnlyNote, subtitlePaint, 40f, y)
         }
         return y
-    }
-
-    private fun typeName(type: DefectType): String = when (type) {
-        DefectType.POTHOLE -> "Яма"
-        DefectType.CRACK_NETWORK -> "Сеть трещин"
-        DefectType.RUTTING -> "Колея"
-        DefectType.PATCH -> "Заплатка"
-        DefectType.MANHOLE_COVER -> "Люк"
-        DefectType.UNKNOWN -> "Неизвестно"
     }
 
     private fun clip(text: String, maxChars: Int): String =
@@ -206,9 +241,13 @@ class PdfReportGenerator {
     private inner class Writer(private val document: PdfDocument) {
         private var page: PdfDocument.Page? = null
         private var canvas = android.graphics.Canvas()
-        var y = 56f
-            private set
         private var pageNumber = 0
+
+        /** Демо-режим: на кожній сторінці діагональний водяний знак. */
+        var demo: Boolean = false
+
+        /** Рядок аудиту калібрування у підвалі. */
+        var calibrationNote: String? = null
 
         fun startPage() {
             newPage()
@@ -220,7 +259,6 @@ class PdfReportGenerator {
             val info = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, pageNumber).create()
             page = document.startPage(info)
             canvas = page!!.canvas
-            y = 56f
             canvas.drawColor(Color.WHITE)
         }
 
@@ -255,7 +293,26 @@ class PdfReportGenerator {
 
         private fun finishPage(page: PdfDocument.Page) {
             val footer = Paint(bodyPaint).apply { color = Color.rgb(140, 146, 154); textSize = 8f }
-            page.canvas.drawText("RoadScan AI Agent · стр. $pageNumber", 40f, PAGE_HEIGHT - 24f, footer)
+            page.canvas.drawText("${strings.footer} $pageNumber", 40f, PAGE_HEIGHT - 24f, footer)
+            calibrationNote?.let {
+                page.canvas.drawText(it, 40f, PAGE_HEIGHT - 35f, footer)
+            }
+            if (demo) {
+                val watermark = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.argb(38, 220, 60, 40)
+                    textSize = 72f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                }
+                page.canvas.save()
+                page.canvas.rotate(-30f, PAGE_WIDTH / 2f, PAGE_HEIGHT / 2f)
+                page.canvas.drawText(
+                    strings.demoWatermark,
+                    PAGE_WIDTH / 2f - 92f,
+                    PAGE_HEIGHT / 2f,
+                    watermark,
+                )
+                page.canvas.restore()
+            }
             document.finishPage(page)
         }
 
