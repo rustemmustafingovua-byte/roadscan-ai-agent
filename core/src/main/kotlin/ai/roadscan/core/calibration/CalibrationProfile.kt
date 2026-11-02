@@ -16,7 +16,7 @@ import kotlin.math.roundToInt
  */
 @Serializable
 data class CalibrationProfile(
-    val name: String = "По умолчанию",
+    val name: String = "За замовчуванням",
     /** Высота оптического центра камеры над дорогой, м. */
     val cameraHeightM: Float = 1.3f,
     /** Наклон оптической оси вниз, градусы. */

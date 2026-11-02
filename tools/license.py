@@ -6,7 +6,7 @@
 
 Примеры:
     ./tools/license.py keygen
-    ./tools/license.py issue --org "МБУ Дорремстрой" --tier PRO --days 365 \
+    ./tools/license.py issue --org "КП Шляхове господарство" --tier PRO --days 365 \
         --features pdf,xlsx,geojson,gis --out license.txt
     ./tools/license.py verify license.txt
 """

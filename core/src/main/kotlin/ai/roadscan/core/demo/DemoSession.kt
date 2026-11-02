@@ -39,7 +39,7 @@ object DemoSession {
     fun build(
         startedAtMs: Long = System.currentTimeMillis() - DURATION_MS,
         seed: Long = 20_261_101L,
-        sessionId: String = "DEMO-20KM",
+        sessionId: String = "ДЕМО-20КМ",
     ): SessionData {
         val rng = Lcg(seed)
         val defects = mutableListOf<DefectRecord>()

@@ -42,7 +42,7 @@ class LicenseStateTest {
     fun `activated license disables watermark and unlocks gis`() {
         val payload = LicensePayload(
             licenseId = "L-1",
-            organization = "МБУ Дорремстрой",
+            organization = "КП Шляхове господарство",
             tier = "PRO",
             expiresAtMs = 0,
             features = listOf("pdf", "xlsx", "geojson", "gis"),

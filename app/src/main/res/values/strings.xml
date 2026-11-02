@@ -10,20 +10,7 @@
     <!-- экран сканирования -->
     <string name="camera_off_title">Камеру вимкнено</string>
     <string name="camera_off_hint">Почніть зміну — агент перевірить GPS, диск і температуру</string>
-    <string name="model_name">YOLOv8</string>
-    <string name="model_missing">модель не знайдено</string>
-    <string name="speed_format">%1$.0f км/год</string>
-    <string name="metric_fps">FPS</string>
-    <string name="metric_frames">Кадри</string>
-    <string name="metric_confirmed">Підтв.</string>
-    <string name="metric_visual">Візуальні</string>
-    <string name="metric_battery">Батарея</string>
-    <string name="metric_soc">SoC</string>
-    <string name="metric_gps">GPS</string>
-    <string name="metric_disk">Диск</string>
-    <string name="metric_disk_value">%1$d МБ</string>
     <string name="metric_none">—</string>
-    <string name="metric_gps_none">немає</string>
     <string name="metric_gps_value">±%1$.0f м</string>
     <string name="metric_percent">%1$d%%</string>
     <string name="action_start">Почати зміну</string>
@@ -120,6 +107,11 @@
     <string name="settings_demo">Демонстрація</string>
     <string name="settings_demo_hint">Сформувати звіт за еталонною ділянкою 4.8 км: кластери, кошторис, PDF/Excel/GeoJSON. Зручно для показу замовнику та навчання операторів.</string>
     <string name="settings_demo_action">Сформувати демо-звіт</string>
+    <string name="settings_legal">Правова інформація</string>
+    <string name="settings_legal_hint">Ліцензійна угода та політика конфіденційності — офлайн, на пристрої.</string>
+    <string name="settings_legal_eula">Ліцензійна угода</string>
+    <string name="settings_legal_privacy">Політика конфіденційності</string>
+    <string name="legal_close">Закрити</string>
     <string name="settings_footer">RoadScan AI Agent · офлайн-обробка, дані не залишають пристрій</string>
 
     <!-- HUD -->

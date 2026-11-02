@@ -143,8 +143,11 @@ whiteline blur
 | 5. RAM / энергия | Буферы ограничены, Bitmap recycle, throttle | — (профилирование на устройстве) |
 | 6. Офлайн-first | Room + локальные файлы, нет сетевых вызовов | — (авиарежим) |
 
-Полный протокол приёмки — `docs/ACCEPTANCE.md`, коммерческий пакет —
-`docs/COMMERCIAL.md`.
+Полный протокол приёмки — [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md),
+коммерческий пакет — [`docs/COMMERCIAL.md`](docs/COMMERCIAL.md), локаль и
+ДСТУ — [`docs/UKRAINE.md`](docs/UKRAINE.md), release-сборка —
+[`docs/RELEASE.md`](docs/RELEASE.md), правові документи —
+[`docs/EULA.md`](docs/EULA.md) і [`docs/PRIVACY.md`](docs/PRIVACY.md).
 
 ## Метрики и формулы
 
@@ -157,8 +160,8 @@ whiteline blur
 
 ## Ограничения
 
-* Модель обучена на RDD2022 (Япония/Индия/Чехия); для российских объектов нужна
-  дообучение/валидация на локальном датасете.
+* Модель обучена на RDD2022 (Япония/Индия/Чехия); для украинских объектов нужна
+  дообучение/валидация на локальном датасете (ями с водой, заплатки, зимова хімія).
 * Монокулярная площадь зависит от калибровки; на невыровненной камере ошибка растёт.
 * Глубина по удару — калибруемая эвристика, не замена лазерному профилометру.
 * RTK: `LocationCollector.injectRtk(...)` — точка входа для внешнего приёмника по BLE/UART.
@@ -179,6 +182,9 @@ core/src/main/kotlin/ai/roadscan/core/
   estimate/     PriceCatalog, EstimateCalculator
   report/       XlsxWriter, ReportXlsxBuilder, GeoJsonExporter, ReportMeta
   license/      LicenseVerifier, LicenseState, Edition
+  i18n/         DocStrings, CoreMessages (uk за замовчуванням, ru)
+  video/        Montage (планувальник highlights/full)
+  demo/         DemoSession (еталонна ділянка для показу)
 app/src/main/kotlin/ai/roadscan/app/
   perception/   YoloV8Detector, FrameAnalyzer, SensorCollector
   location/     LocationCollector
@@ -186,16 +192,19 @@ app/src/main/kotlin/ai/roadscan/app/
   data/         Room (сессии, дефекты, реквизиты), репозиторий
   settings/     SettingsStore (калибровка, реквизиты, лицензия)
   report/       PdfReportGenerator, ExportManager
-  ui/           Compose: сканирование, отчёт, настройки
+  video/        VideoStreamDecoder, VideoAnalyzer, VideoBrander, Mp4Encoder
+  ui/           Compose: сканирование, Відеостудія, отчёт, настройки
 tools/          license.py — выпуск и проверка офлайн-лицензий
+docs/           ACCEPTANCE, COMMERCIAL, UKRAINE, RELEASE, EULA, PRIVACY
 ```
 
 ## Тесты
 
-76 тестов: фузия и окно ±50 мс, гистерезис троттлинга, линза, severity, геометрия,
+88 тестов: фузия и окно ±50 мс, гистерезис троттлинга, линза, severity, геометрия,
 DBSCAN/полигоны, формулы сметы, GeoJSON, валидность XLSX (парсинг всех XML-частей),
 производительность кластеризации 3000 точек и сметы на 10 000 кластеров (< 3 с),
-проверка/истечение/подделка лицензий, калибровка и фокус.
+проверка/истечение/подделка лицензий, калибровка и фокус, планувальник
+відеомонтажу (highlights/full, вікна подій, ліміти тривалості) і демо-сесія.
 
 ```bash
 ./gradlew :core:test --rerun-tasks

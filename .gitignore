@@ -9,3 +9,6 @@ captures/
 .externalNativeBuild/
 .cxx/
 .model-work/
+keystore.properties
+*.jks
+*.keystore

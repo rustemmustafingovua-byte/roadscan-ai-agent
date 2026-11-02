@@ -1,14 +1,14 @@
 {
-  "region": "RU-DEFAULT",
-  "currency": "RUB",
+  "region": "UA-DEFAULT",
+  "currency": "UAH",
   "vatRate": 0.2,
   "items": [
-    { "code": "MILLING", "name": "Фрезерование асфальтобетонного покрытия", "unit": "м³", "priceRub": 850.0 },
-    { "code": "ASPHALT", "name": "Асфальтобетонная смесь, тип Б I", "unit": "т", "priceRub": 9800.0 },
-    { "code": "CRACK_SEAL", "name": "Заделка трещин битумной мастикой", "unit": "м²", "priceRub": 450.0 },
-    { "code": "DISPOSAL", "name": "Вывоз и утилизация фрезерованного материала", "unit": "м³", "priceRub": 700.0 },
-    { "code": "MOBILIZATION", "name": "Мобилизация бригады и техники", "unit": "усл.", "priceRub": 15000.0 },
-    { "code": "TRAFFIC", "name": "Ограждение места работ и организация движения", "unit": "усл.", "priceRub": 8000.0 },
-    { "code": "LABOR", "name": "Дорожные рабочие (подготовка основания)", "unit": "чел·час", "priceRub": 950.0 }
+    { "code": "MILLING", "name": "Фрезерування асфальтобетонного покриття", "unit": "м³", "priceRub": 1150.0 },
+    { "code": "ASPHALT", "name": "Асфальтобетонна суміш, тип Б I", "unit": "т", "priceRub": 6400.0 },
+    { "code": "CRACK_SEAL", "name": "Закладення тріщин бітумною мастикою", "unit": "м²", "priceRub": 380.0 },
+    { "code": "DISPOSAL", "name": "Вивезення та утилізація фрезерованого матеріалу", "unit": "м³", "priceRub": 620.0 },
+    { "code": "MOBILIZATION", "name": "Мобілізація бригади та техніки", "unit": "посл.", "priceRub": 14000.0 },
+    { "code": "TRAFFIC", "name": "Огородження місця робіт і організація руху", "unit": "посл.", "priceRub": 7500.0 },
+    { "code": "LABOR", "name": "Дорожні робітники (підготовка основи)", "unit": "люд·год", "priceRub": 420.0 }
   ]
 }

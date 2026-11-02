@@ -1,6 +1,7 @@
 package ai.roadscan.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -8,11 +9,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -21,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,6 +34,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -54,39 +62,44 @@ fun SettingsScreen(
     onLoadDemo: () -> Unit,
     padding: PaddingValues,
 ) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Column {
+    var legalDoc by remember { mutableStateOf<LegalDoc?>(null) }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Column {
+                    Text(
+                        stringResource(R.string.settings_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        stringResource(R.string.settings_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            item { LicenseSection(state, onActivateLicense, onDeactivateLicense) }
+            item { CalibrationSection(state.calibration, onSaveCalibration) }
+            item { DocumentsSection(state.meta, onSaveMeta) }
+            item { DemoSection(onLoadDemo) }
+            item { LegalSection(onOpen = { legalDoc = it }) }
+            item {
                 Text(
-                    stringResource(R.string.settings_title),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    stringResource(R.string.settings_subtitle),
+                    stringResource(R.string.settings_footer),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
         }
-        item { LicenseSection(state, onActivateLicense, onDeactivateLicense) }
-        item { CalibrationSection(state.calibration, onSaveCalibration) }
-        item { DocumentsSection(state.meta, onSaveMeta) }
-        item { DemoSection(onLoadDemo) }
-        item {
-            Text(
-                stringResource(R.string.settings_footer),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
+        legalDoc?.let { doc -> LegalDialog(doc) { legalDoc = null } }
     }
 }
 
@@ -335,6 +348,64 @@ private fun DemoSection(onLoadDemo: () -> Unit) {
             Text(stringResource(R.string.settings_demo_action))
         }
     }
+}
+
+/**
+ * Правовые документы поставляются в APK (assets/legal) и открываются офлайн:
+ * у дорожной службы нет гарантированного интернета в поле.
+ */
+@Composable
+private fun LegalSection(onOpen: (LegalDoc) -> Unit) {
+    SectionCard(stringResource(R.string.settings_legal)) {
+        Text(
+            stringResource(R.string.settings_legal_hint),
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(onClick = { onOpen(LegalDoc.Eula) }, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.settings_legal_eula))
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = { onOpen(LegalDoc.Privacy) }, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.settings_legal_privacy))
+        }
+    }
+}
+
+private enum class LegalDoc(val titleRes: Int, val assetBase: String) {
+    Eula(R.string.settings_legal_eula, "eula"),
+    Privacy(R.string.settings_legal_privacy, "privacy"),
+}
+
+@Composable
+private fun LegalDialog(doc: LegalDoc, onClose: () -> Unit) {
+    val context = LocalContext.current
+    val language = LocalConfiguration.current.locales[0].language
+    val suffix = if (language == "ru") "ru" else "uk"
+    val body = remember(doc, suffix) {
+        runCatching {
+            context.assets.open("legal/${doc.assetBase}_$suffix.txt")
+                .bufferedReader()
+                .use { it.readText() }
+        }.getOrDefault("")
+    }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(stringResource(doc.titleRes), fontWeight = FontWeight.Bold) },
+        text = {
+            Text(
+                body,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onClose) { Text(stringResource(R.string.legal_close)) }
+        },
+    )
 }
 
 @Composable

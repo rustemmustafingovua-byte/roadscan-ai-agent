@@ -116,7 +116,7 @@ class ReportExportTest {
         val meta = ai.roadscan.core.report.ReportMeta(
             objectName = "ул. Ленина, чётная сторона",
             roadName = "А-108, км 12+400",
-            customer = "МБУ Дорремстрой",
+            customer = "КП Шляхове господарство",
             contractor = "ООО ДорСкан",
             contractNumber = "44-2026/17",
             demo = true,
@@ -126,7 +126,7 @@ class ReportExportTest {
 
         val sheet = unzip(ReportXlsxBuilder.build(report))["xl/worksheets/sheet1.xml"]!!.decodeToString()
         assertTrue(sheet.contains("ул. Ленина"))
-        assertTrue(sheet.contains("МБУ Дорремстрой"))
+        assertTrue(sheet.contains("КП Шляхове господарство"))
         assertTrue(sheet.contains("ДЕМОНСТРАЦІЙНИЙ"))
 
         val geojson = Json.parseToJsonElement(GeoJsonExporter.export(report)).jsonObject
