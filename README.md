@@ -1,5 +1,8 @@
 # RoadScan AI Agent
 
+[![Android CI](https://github.com/rustemmustafingovua-byte/roadscan-ai-agent/actions/workflows/android.yml/badge.svg)](https://github.com/rustemmustafingovua-byte/roadscan-ai-agent/actions/workflows/android.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 > **Українською коротко.** Android-застосунок для обстеження дорожнього покриття:
 > камера + акселерометр + GNSS у реальному часі знаходять дефекти, а після зміни
 > самі формують **кошторис (Excel)**, **відомість (PDF)** і **GeoJSON** для ГІС —
