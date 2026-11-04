@@ -82,6 +82,17 @@ class YoloV8Detector(
 
     init {
         interpreter = createInterpreter(preferNnapi = true)
+        interpreter?.let { interp ->
+            runCatching {
+                android.util.Log.d(
+                    "RoadScanPerf",
+                    "model in=" + interp.getInputTensor(0).shape().toList() +
+                        " " + interp.getInputTensor(0).dataType() +
+                        " out=" + interp.getOutputTensor(0).shape().toList() +
+                        " " + interp.getOutputTensor(0).dataType(),
+                )
+            }
+        }
         backend = if (interpreter != null && nnapiActive) Backend.NNAPI else Backend.XNNPACK
         val size = inputSize ?: detectInputSize(interpreter)
         resolvedInputSize = size

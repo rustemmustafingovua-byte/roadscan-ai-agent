@@ -170,6 +170,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         speedProvider = { location.speedKmh },
         detectionsProvider = { detector.lastDetections },
         visionEnabledProvider = { agent.visionEnabled },
+        detectorLatencyMsProvider = { detector.lastLatencyMs },
+        backendProvider = { detector.backend.name },
         onDefectPhoto = { defectId, bitmap ->
             // Снимок находки: в ведомость и в комплект документов.
             val path = photoStore.save(defectId, bitmap)

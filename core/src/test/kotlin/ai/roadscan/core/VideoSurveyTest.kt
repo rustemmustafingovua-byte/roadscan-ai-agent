@@ -32,12 +32,16 @@ class VideoSurveyTest {
         box = BoundingBox(left, top, right, bottom),
     )
 
-    private fun analysis(vararg detections: ObservedDefect) = VideoAnalysis(
+    private fun analysis(
+        vararg detections: ObservedDefect,
+        photos: Map<Long, String> = emptyMap(),
+    ) = VideoAnalysis(
         durationMs = 10_000,
         width = 1280,
         height = 720,
         sampledFps = 3f,
         detections = detections.toList(),
+        photos = photos,
     )
 
     @Test
@@ -156,6 +160,39 @@ class VideoSurveyTest {
         assertNull(defect.lat)
         assertNull(defect.lon)
         assertTrue(defect.km in 5.0..6.0)
+    }
+
+    @Test
+    fun `defect carries the photo closest to its peak frame`() {
+        // Снимки снимаются по ходу анализа, поэтому к пику берём ближайший:
+        // именно на нём дефект виден лучше всего.
+        val result = VideoSurveyPlanner.plan(
+            analysis = analysis(
+                observed(1_000, confidence = 0.5f),
+                observed(1_333, confidence = 0.7f),
+                observed(1_666, confidence = 0.9f),
+                photos = mapOf(
+                    1_000L to "/photos/t1000.jpg",
+                    1_666L to "/photos/t1666.jpg",
+                ),
+            ),
+            section = RoadSection(kmFrom = 10.0, kmTo = 20.0),
+        )
+
+        val defect = result.single()
+        // Пик уверенности — кадр 1666 мс, снимок ровно с него.
+        assertEquals("/photos/t1666.jpg", defect.photoPath)
+        val record = VideoSurveyPlanner.toRecords(listOf(defect), "SUR-TEST").single()
+        assertEquals("/photos/t1666.jpg", record.photoPath)
+    }
+
+    @Test
+    fun `defect without photos stays without photo`() {
+        val result = VideoSurveyPlanner.plan(
+            analysis = analysis(observed(1_000), observed(1_333), observed(1_666)),
+            section = RoadSection(kmFrom = 0.0, kmTo = 1.0),
+        )
+        assertNull(result.single().photoPath)
     }
 
     @Test

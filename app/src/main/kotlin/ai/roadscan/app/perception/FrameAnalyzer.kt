@@ -44,6 +44,10 @@ class FrameAnalyzer(
     private val visionEnabledProvider: () -> Boolean = { true },
     /** Снимок находки в момент обнаружения (для ведомости). */
     private val onDefectPhoto: ((String, Bitmap) -> Unit)? = null,
+    /** Задержка последнего инференса, мс (для журнала производительности). */
+    private val detectorLatencyMsProvider: () -> Double = { 0.0 },
+    /** Активный бэкенд инференса (NNAPI/XNNPACK) — для журнала. */
+    private val backendProvider: () -> String = { "?" },
     private val onFrame: (FrameMetrics) -> Unit = {},
 ) : ImageAnalysis.Analyzer {
 
@@ -87,7 +91,21 @@ class FrameAnalyzer(
             if (accepted != null) {
                 onDefectPhoto?.invoke(accepted.id, oriented)
             }
-            framesSeen.incrementAndGet()
+            val seen = framesSeen.incrementAndGet()
+            // Раз в секунду — куда уходит кадровый бюджет: полная обработка
+            // против одного инференса. Без этого оптимизация вслепую.
+            if (seen % LOG_EVERY_N_FRAMES == 0L) {
+                android.util.Log.d(
+                    "RoadScanPerf",
+                    "frame=$seen total=%.1fms infer=%.1fms backend=%s size=%dx%d".format(
+                        (System.nanoTime() - started) / 1_000_000.0,
+                        detectorLatencyMsProvider(),
+                        backendProvider(),
+                        oriented.width,
+                        oriented.height,
+                    ),
+                )
+            }
 
             val now = SystemClock.elapsedRealtime()
             val overlays = tracker.update(detectionsProvider(), now)
@@ -108,6 +126,11 @@ class FrameAnalyzer(
             original?.recycle()
             image.close()
         }
+    }
+
+    private companion object {
+        /** Как часто писать строку производительности в лог (кадров). */
+        const val LOG_EVERY_N_FRAMES = 30L
     }
 
     /** Сброс трекера на старте смены: номера дефектов начинаются с 001. */
