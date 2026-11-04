@@ -1,11 +1,14 @@
 package ai.roadscan.app.ui
 
+import android.Manifest
 import android.app.Application
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.speech.tts.TextToSpeech
 import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.core.content.ContextCompat
 import ai.roadscan.app.R
 import ai.roadscan.app.RoadScanApp
 import ai.roadscan.app.data.SessionEntity
@@ -32,6 +35,9 @@ import ai.roadscan.core.model.AgentState
 import ai.roadscan.core.model.DefectType
 import ai.roadscan.core.model.EnvironmentSnapshot
 import ai.roadscan.core.model.GeoPoint
+import ai.roadscan.core.model.ReviewDecision
+import ai.roadscan.core.readiness.Readiness
+import ai.roadscan.core.readiness.ReadinessEvaluator
 import ai.roadscan.core.report.ReportMeta
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,6 +50,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+
+/** Сводка по одному типу дефектов: количество и средняя уверенность. */
+data class DefectSummary(
+    val type: DefectType,
+    val count: Int,
+    val avgConfidence: Float,
+)
 
 data class UiState(
     val running: Boolean = false,
@@ -83,8 +96,8 @@ data class UiState(
     val city: String = "",
     /** Трек смены для мини-карты (последние ~2 км). */
     val track: List<GeoPoint> = emptyList(),
-    /** Счётчик дефектов по типам для панели HUD. */
-    val breakdown: List<Pair<DefectType, Int>> = emptyList(),
+    /** Сводка по типам дефектов для панели статистики. */
+    val summary: List<DefectSummary> = emptyList(),
     val currencySymbol: String = "₴",
     /**
      * Агент предлагает выбрать режим при низком заряде (ТЗ п. 3.2):
@@ -97,6 +110,22 @@ data class UiState(
     val backgroundMode: Boolean = false,
     /** Результат проверки готовности комплекта. */
     val diagnostics: List<ai.roadscan.app.diagnostics.DiagnosticCheck> = emptyList(),
+    /** Дефекты текущей смены — для инспектора и валидации оператором. */
+    val defects: List<ai.roadscan.core.model.DefectRecord> = emptyList(),
+    /** Выбранный дефект (для правой панели). */
+    val selectedDefectId: String? = null,
+    /**
+     * Уверенность детектора по последним кадрам — график качества модели.
+     */
+    val performance: List<Float> = emptyList(),
+    /** Готовность к смене: что ещё нужно сделать оператору. */
+    val readiness: Readiness = ReadinessEvaluator.evaluate(
+        permissionsGranted = true,
+        licenseActive = true,
+        calibrationReady = true,
+        documentsFilled = true,
+        equipmentReady = true,
+    ),
 )
 
 class ScanViewModel(application: Application) : AndroidViewModel(application) {
@@ -127,6 +156,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     private var lastOverlayUpdateMs = 0L
 
+    /** Сколько точек держим в графике качества модели. */
+    private val PERFORMANCE_HISTORY = 60
+
     /** Идентификаторы дефектов, уже записанных в базу текущей смены. */
     private val persistedDefectIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
@@ -142,8 +174,12 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             // 30 обновлений/с перерисовывать HUD незачем: 8–10 достаточно.
             if (now - lastOverlayUpdateMs >= 100) {
                 lastOverlayUpdateMs = now
+                // График качества: уверенность лучшей находки в кадре.
+                // По нему видно, что модель «поплыла» (мокрый асфальт, ночь).
+                val bestConfidence = metrics.overlays.maxOfOrNull { it.confidence } ?: 0f
                 _state.update {
                     it.copy(
+                        performance = (it.performance + bestConfidence).takeLast(PERFORMANCE_HISTORY),
                         overlay = metrics.overlays,
                         frameWidth = metrics.frameWidth,
                         frameHeight = metrics.frameHeight,
@@ -181,6 +217,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         initTts()
+        refreshReadiness()
     }
 
     private fun buildAgent(profile: CalibrationProfile): RoadScanAgent = RoadScanAgent(
@@ -242,7 +279,10 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 meta = meta,
                 overlay = emptyList(),
                 track = emptyList(),
-                breakdown = emptyList(),
+                summary = emptyList(),
+                defects = emptyList(),
+                selectedDefectId = null,
+                performance = emptyList(),
             )
         }
         // Смена заводится в базе сразу: переживает убийство процесса.
@@ -342,6 +382,32 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * Выбор дефекта для инспектора (правая панель).
+     */
+    fun selectDefect(id: String?) {
+        _state.update { it.copy(selectedDefectId = id) }
+    }
+
+    /**
+     * Решение оператора по находке.
+     *
+     * Отклонённый дефект не попадает в ведомость и смету; подтверждённый
+     * оператором попадает, даже если автоматика удар не увидела. Решение
+     * сохраняется в базу и переживает перезапуск приложения.
+     */
+    fun setDefectReview(id: String, decision: ReviewDecision) {
+        agent.setReview(id, decision)
+        _state.update { state ->
+            state.copy(
+                defects = state.defects.map { if (it.id == id) it.copy(review = decision) else it },
+            )
+        }
+        viewModelScope.launch {
+            runCatching { repository.setReview(id, decision) }
+        }
+    }
+
+    /**
      * Проверка готовности комплекта перед сменой: модель, камера, датчик,
      * GNSS, место, заряд, лицензия. Всё офлайн.
      */
@@ -360,7 +426,41 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             _state.update { it.copy(diagnostics = checks) }
+            refreshReadiness(checks)
         }
+    }
+
+    /**
+     * Пересчитывает готовность к смене: разрешения, лицензия, калибровка,
+     * реквизиты и состояние оборудования.
+     */
+    private fun refreshReadiness(
+        checks: List<ai.roadscan.app.diagnostics.DiagnosticCheck> = _state.value.diagnostics,
+    ) {
+        val application = getApplication<Application>()
+        val permissions = ContextCompat.checkSelfPermission(
+            application,
+            Manifest.permission.CAMERA,
+        ) == PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(
+                application,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED
+
+        val licenseNow = container.settings.licenseState()
+        val calibration = container.settings.calibration()
+        val meta = container.settings.reportMeta()
+        val equipmentBlocking = checks.any { !it.ok && it.blocking }
+
+        val readiness = ReadinessEvaluator.evaluate(
+            permissionsGranted = permissions,
+            licenseActive = licenseNow.isLicensed(System.currentTimeMillis()),
+            calibrationReady = calibration.hasOptics,
+            documentsFilled = meta.isFilled,
+            equipmentReady = checks.none { !it.ok && it.blocking } && checks.isNotEmpty(),
+            equipmentBlocking = equipmentBlocking,
+        )
+        _state.update { it.copy(readiness = readiness) }
     }
 
     private fun startTicker() {
@@ -382,9 +482,15 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val defects = agent.acceptedDefects
                 persistNewDefects(defects)
-                val breakdown = defects.groupingBy { it.type }.eachCount()
-                    .entries.sortedByDescending { it.value }
-                    .map { it.key to it.value }
+                val summary = defects.groupBy { it.type }
+                    .map { (type, group) ->
+                        DefectSummary(
+                            type = type,
+                            count = group.size,
+                            avgConfidence = group.map { it.visionConfidence }.average().toFloat(),
+                        )
+                    }
+                    .sortedByDescending { it.count }
                 val point = location.latest
                 _state.update {
                     val track = if (point != null) {
@@ -404,7 +510,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         frames = agent.statsSnapshot().framesAnalyzed,
                         confirmed = defects.count { d -> d.confirmed },
                         visualOnly = defects.count { d -> !d.confirmed },
-                        breakdown = breakdown,
+                        summary = summary,
+                        defects = defects,
                         track = track,
                         latitude = point?.lat ?: it.latitude,
                         longitude = point?.lon ?: it.longitude,

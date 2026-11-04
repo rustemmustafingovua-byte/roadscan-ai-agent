@@ -6,9 +6,6 @@ import ai.roadscan.app.data.RoadScanRepository
 import ai.roadscan.app.settings.SettingsStore
 import ai.roadscan.core.agent.AgentConfig
 import ai.roadscan.core.estimate.PriceCatalog
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.CameraXConfig
-import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.room.Room
 
 class RoadScanApp : Application() {
@@ -17,25 +14,7 @@ class RoadScanApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        configureCameraX()
         container = AppContainer(this)
-    }
-
-    /**
-     * Работаем только с задней камерой: не трогаем фронтальный объектив
-     * (на части устройств с фронтальной камерой это даёт свечение LED) и
-     * убираем предупреждения валидатора на устройствах с одной камерой.
-     *
-     * `configureInstance` допускает один вызов на процесс — здесь он и есть.
-     */
-    private fun configureCameraX() {
-        runCatching {
-            ProcessCameraProvider.configureInstance(
-                CameraXConfig.Builder()
-                    .setAvailableCamerasLimiter(CameraSelector.DEFAULT_BACK_CAMERA)
-                    .build(),
-            )
-        }
     }
 }
 
@@ -51,7 +30,11 @@ class AppContainer(application: Application) {
         RoadScanDatabase::class.java,
         "roadscan.db",
     )
-        .addMigrations(RoadScanDatabase.MIGRATION_1_2, RoadScanDatabase.MIGRATION_2_3)
+        .addMigrations(
+            RoadScanDatabase.MIGRATION_1_2,
+            RoadScanDatabase.MIGRATION_2_3,
+            RoadScanDatabase.MIGRATION_3_4,
+        )
         .fallbackToDestructiveMigration()
         .build()
 

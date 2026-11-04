@@ -187,6 +187,24 @@ data class VehicleTelemetry(
 /**
  * Запись о дефекте — единица обмена между агентом, Room DB и аналитикой.
  */
+/**
+ * Решение оператора по находке.
+ *
+ * Автоматика ошибается в обе стороны: принимает тень за яму (ложное
+ * срабатывание) или промолкает о настоящей яме (пропуск). Оператор, который
+ * видел дорогу, снимает оба риска: его решение — последнее.
+ */
+enum class ReviewDecision {
+    /** Не смотрели. */
+    UNREVIEWED,
+
+    /** Оператор подтвердил: дефект настоящий. */
+    CONFIRMED,
+
+    /** Оператор отклонил: ложное срабатывание. */
+    REJECTED,
+}
+
 data class DefectRecord(
     val id: String,
     val sessionId: String,
@@ -212,7 +230,18 @@ data class DefectRecord(
      * дефекта не будет — но километраж останется, и он попадёт в ведомость.
      */
     val km: Double? = null,
-)
+    /** Решение оператора по находке. */
+    val review: ReviewDecision = ReviewDecision.UNREVIEWED,
+) {
+    /**
+     * Попадает ли дефект в смету.
+     *
+     * Автоматическое подтверждение (удар подвески) или подтверждение
+     * оператором — и ни разу не отклонённый человеком.
+     */
+    val effectiveConfirmed: Boolean
+        get() = review != ReviewDecision.REJECTED && (confirmed || review == ReviewDecision.CONFIRMED)
+}
 
 /** События, которые агент отдаёт UI/голосовому движку. */
 sealed interface AgentEvent {

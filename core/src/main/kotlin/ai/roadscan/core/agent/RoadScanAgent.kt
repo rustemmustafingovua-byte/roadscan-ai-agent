@@ -273,6 +273,24 @@ class RoadScanAgent(
 
     // ------------------------------------------------------------------ sensors
 
+    /**
+     * Решение оператора по находке.
+     *
+     * Оператор видел дорогу и снимает ошибки автоматики в обе стороны:
+     * подтверждает настоящую яму, которую удар не зафиксировал, и отклоняет
+     * ложное срабатывание. Отклонённый дефект не попадает ни в ведомость,
+     * ни в смету.
+     */
+    @Synchronized
+    fun setReview(defectId: String, decision: ai.roadscan.core.model.ReviewDecision): Boolean {
+        val index = accepted.indexOfFirst { it.id == defectId }
+        if (index < 0) return false
+        accepted[index] = accepted[index].copy(review = decision)
+        val recentIndex = recent.indexOfFirst { it.id == defectId }
+        if (recentIndex >= 0) recent[recentIndex] = accepted[index]
+        return true
+    }
+
     fun onSensorSample(sample: SensorSample) = fusion.addSample(sample)
 
     fun onSensorSamples(samples: Iterable<SensorSample>) = fusion.addSamples(samples)

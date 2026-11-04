@@ -39,11 +39,16 @@ class DefectClusterer(
     fun cluster(defects: List<DefectRecord>): List<DefectCluster> {
         if (defects.isEmpty()) return emptyList()
 
+        // Отклонённый оператором дефект — ложное срабатывание, в ведомость
+        // и смету он не попадает.
+        val live = defects.filter { it.review != ai.roadscan.core.model.ReviewDecision.REJECTED }
+        if (live.isEmpty()) return emptyList()
+
         // Дефекты с координатами кластеризуются по геометрии (DBSCAN в ENU).
-        val geolocated = defects.filter { it.location != null }
+        val geolocated = live.filter { it.location != null }
         // Без координат (обследование видео без привязки к точке) группируем
         // по километражу: соседние километры — одна зона повреждения.
-        val kilometerOnly = defects.filter { it.location == null }
+        val kilometerOnly = live.filter { it.location == null }
 
         val result = mutableListOf<DefectCluster>()
         if (geolocated.isNotEmpty()) {
@@ -78,7 +83,7 @@ class DefectClusterer(
                 .mapIndexed { index, members ->
                     val kms = members.mapNotNull { it.km }
                     val area = members.sumOf { it.estimatedAreaM2 }.coerceAtLeast(0.01)
-                    val depths = members.filter { it.confirmed }.map { it.estimatedDepthMm }
+                    val depths = members.filter { it.effectiveConfirmed }.map { it.estimatedDepthMm }
                         .ifEmpty { members.map { it.estimatedDepthMm } }
                     DefectCluster(
                         id = "CL-${type.name.take(2)}-$index-KM${members.first().id.takeLast(6)}",
@@ -90,7 +95,7 @@ class DefectClusterer(
                         avgDepthMm = depths.average().takeIf { !it.isNaN() } ?: 0.0,
                         maxSeverity = members.maxOf { it.severity },
                         defectCount = members.size,
-                        status = if (members.any { it.confirmed }) {
+                        status = if (members.any { it.effectiveConfirmed }) {
                             ConfirmationStatus.CONFIRMED_PHYSICAL
                         } else {
                             ConfirmationStatus.UNCONFIRMED_VISUAL_ONLY

@@ -59,6 +59,11 @@ data class DefectEntity(
      * Без него дефект теряет привязку и не попадает в ведомость.
      */
     val km: Double? = null,
+    /**
+     * Решение оператора: 0 — не смотрели, 1 — подтверждено, 2 — ложное.
+     * Хранится числом, чтобы не тянуть enum-конвертер Room.
+     */
+    val review: Int = 0,
 )
 
 @Dao
@@ -87,11 +92,14 @@ interface RoadScanDao {
 
     @Query("DELETE FROM defects WHERE sessionId = :sessionId")
     suspend fun deleteDefects(sessionId: String)
+
+    @Query("UPDATE defects SET review = :review WHERE id = :defectId")
+    suspend fun setReview(defectId: String, review: Int)
 }
 
 @Database(
     entities = [SessionEntity::class, DefectEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class RoadScanDatabase : RoomDatabase() {
@@ -110,6 +118,13 @@ abstract class RoadScanDatabase : RoomDatabase() {
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE defects ADD COLUMN km REAL")
+            }
+        }
+
+        /** v4: решение оператора по находке. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE defects ADD COLUMN review INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

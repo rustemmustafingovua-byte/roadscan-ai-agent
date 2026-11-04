@@ -5,6 +5,7 @@ import ai.roadscan.core.model.ConfirmationStatus
 import ai.roadscan.core.model.DefectRecord
 import ai.roadscan.core.model.DefectType
 import ai.roadscan.core.model.GeoPoint
+import ai.roadscan.core.model.ReviewDecision
 
 /** Офлайн-хранилище смен и дефектов (Room). */
 class RoadScanRepository(private val dao: RoadScanDao) {
@@ -74,6 +75,16 @@ class RoadScanRepository(private val dao: RoadScanDao) {
     suspend fun loadDefects(sessionId: String): List<DefectRecord> =
         dao.defectsFor(sessionId).map { it.toRecord() }
 
+    /**
+     * Сохраняет решение оператора по находке.
+     *
+     * Отклонённые дефекты не попадают в ведомость и смету, а подтверждённые
+     * оператором — попадают, даже если автоматика удар не увидела.
+     */
+    suspend fun setReview(defectId: String, decision: ReviewDecision) {
+        dao.setReview(defectId, decision.ordinal)
+    }
+
     private fun DefectRecord.toEntity() = DefectEntity(
         id = id,
         sessionId = sessionId,
@@ -90,6 +101,7 @@ class RoadScanRepository(private val dao: RoadScanDao) {
         impactG = impactG,
         nearField = nearField,
         km = km,
+        review = review.ordinal,
     )
 
     private fun DefectEntity.toRecord(): DefectRecord {
@@ -116,6 +128,7 @@ class RoadScanRepository(private val dao: RoadScanDao) {
             latitude = latitude,
             longitude = longitude,
             km = km,
+            review = ReviewDecision.entries.getOrElse(review) { ReviewDecision.UNREVIEWED },
         )
     }
 }

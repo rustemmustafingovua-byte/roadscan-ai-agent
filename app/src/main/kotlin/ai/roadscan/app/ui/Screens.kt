@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -43,8 +44,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -56,6 +60,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -97,14 +102,14 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-// Палитра HUD: тёмное стекло поверх кадра, оранжевый акцент, светофор статусов.
-private val PanelBg = Color(0xF50A0E12)
-private val PanelBorder = Color(0xFF2B333C)
-private val Accent = Color(0xFFFF7A33)
-private val Good = Color(0xFF7CD0B0)
-private val Warn = Color(0xFFFFC857)
-private val Bad = Color(0xFFFF6B6B)
-private val Muted = Color(0xFF8A97A3)
+// Палитра HUD вынесена в дизайн-токены (Theme.kt), чтобы экраны не расходились.
+private val PanelBg = RsTokens.panelBg
+private val PanelBorder = RsTokens.panelBorder
+private val Accent = RsTokens.accent
+private val Good = RsTokens.ok
+private val Warn = RsTokens.warn
+private val Bad = RsTokens.bad
+private val Muted = RsTokens.muted
 
 @Composable
 fun RoadScanRoot(
@@ -116,6 +121,7 @@ fun RoadScanRoot(
     val videoViewModel: VideoViewModel = viewModel()
     val videoState by videoViewModel.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var showDefectSheet by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
 
     // «Поделиться» видео из галереи → сразу в видеостудию.
@@ -132,6 +138,15 @@ fun RoadScanRoot(
             snackbar.showSnackbar(it)
             viewModel.clearMessage()
         }
+    }
+
+    if (showDefectSheet) {
+        DefectSheet(
+            state = state,
+            onSelect = viewModel::selectDefect,
+            onReview = viewModel::setDefectReview,
+            onDismiss = { showDefectSheet = false },
+        )
     }
 
     Scaffold(
@@ -175,6 +190,10 @@ fun RoadScanRoot(
                 onBackgroundMode = viewModel::enterBackgroundMode,
                 onExitBackgroundMode = viewModel::exitBackgroundMode,
                 onDismissBatteryOffer = viewModel::dismissBatteryOffer,
+                onOpenSettings = { tab = 3 },
+                onSelectDefect = viewModel::selectDefect,
+                onReviewDefect = viewModel::setDefectReview,
+                onShowDefects = { showDefectSheet = true },
                 padding = padding,
             )
 
@@ -227,6 +246,10 @@ private fun ScanScreen(
     onBackgroundMode: () -> Unit,
     onExitBackgroundMode: () -> Unit,
     onDismissBatteryOffer: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onSelectDefect: (String?) -> Unit,
+    onReviewDefect: (String, ai.roadscan.core.model.ReviewDecision) -> Unit,
+    onShowDefects: () -> Unit,
     padding: PaddingValues,
 ) {
     val nowMs = rememberClockMs()
@@ -237,35 +260,93 @@ private fun ScanScreen(
             .padding(padding)
             .background(Color.Black),
     ) {
-        if (state.running) {
-            CameraPreview(analyzer = analyzer, modifier = Modifier.fillMaxSize())
-        } else {
-            IdleBackdrop()
-        }
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            // На планшете и в альбомной ориентации — полная консоль из трёх
+            // панелей, как на рабочем экране разметчика. На телефоне места
+            // для трёх панелей нет: камера в центре, показатели сверху, а
+            // находки и валидация — в выдвижной шторке.
+            val wide = maxWidth >= 600.dp
 
-        DetectionOverlay(state)
-
-        Column(Modifier.fillMaxSize()) {
-            HudHeader(state, nowMs)
-            Row(Modifier.fillMaxWidth().weight(1f)) {
-                HudSidePanel(
-                    state = state,
-                    modifier = Modifier
-                        .width(150.dp)
-                        .fillMaxHeight()
-                        .padding(start = 10.dp, top = 6.dp, bottom = 6.dp),
+            Column(Modifier.fillMaxSize()) {
+                RsTopBar(
+                    time = rememberClockText(nowMs, "HH:mm:ss"),
+                    date = rememberClockText(nowMs, "dd.MM.yyyy"),
+                    speedKmh = state.speedKmh,
+                    latitude = state.latitude,
+                    longitude = state.longitude,
+                    project = state.meta.headline(),
                 )
-                Spacer(Modifier.weight(1f))
+                if (!wide) {
+                    RsCompactStats(state)
+                }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                ) {
+                    if (wide) {
+                        // Слева — состояние: покрытие, счётчики, качество модели.
+                        RsStatsPanel(
+                            state = state,
+                            modifier = Modifier
+                                .width(232.dp)
+                                .fillMaxHeight()
+                                .background(RsTokens.panelBg),
+                            footer = if (!state.running) {
+                                { RsReadinessCard(readiness = state.readiness, titles = readinessTitles(), hints = readinessHints(), onStepClick = { onOpenSettings() }) }
+                            } else {
+                                null
+                            },
+                        )
+                    }
+                    // В центре — кадр с подписанными находками.
+                    Box(Modifier.weight(1f)) {
+                        if (state.running) {
+                            CameraPreview(analyzer = analyzer, modifier = Modifier.fillMaxSize())
+                        } else {
+                            IdleBackdrop(showHint = false)
+                        }
+                        DetectionOverlay(state)
+                        RsDetectionLabels(
+                            overlay = state.overlay,
+                            frameWidth = state.frameWidth,
+                            frameHeight = state.frameHeight,
+                        )
+                        if (!state.running && !wide) {
+                            RsReadinessCard(
+                                readiness = state.readiness,
+                                titles = readinessTitles(),
+                                hints = readinessHints(),
+                                onStepClick = { onOpenSettings() },
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(12.dp),
+                            )
+                        }
+                    }
+                    if (wide) {
+                        // Справа — находки и решение оператора по каждой.
+                        RsInspectorPanel(
+                            state = state,
+                            onSelect = onSelectDefect,
+                            onReview = onReviewDefect,
+                            modifier = Modifier
+                                .width(268.dp)
+                                .fillMaxHeight()
+                                .background(RsTokens.panelBg),
+                        )
+                    }
+                }
+                HudFooter(
+                    state = state,
+                    onStart = onStart,
+                    onStop = onStop,
+                    onExitBackgroundMode = onExitBackgroundMode,
+                    onShowDefects = if (wide) null else onShowDefects,
+                )
             }
-            HudFooter(
-                state = state,
-                onStart = onStart,
-                onStop = onStop,
-                onExitBackgroundMode = onExitBackgroundMode,
-            )
         }
 
-        // ТЗ п. 3.2: при низком заряде агент предлагает выбор режима.
         if (state.batteryOffer) {
             BatteryOfferDialog(
                 percent = state.batteryOfferPercent,
@@ -276,6 +357,66 @@ private fun ScanScreen(
         }
     }
 }
+
+/**
+ * Шторка с находками для узкого экрана: список и валидация в одном месте.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DefectSheet(
+    state: UiState,
+    onSelect: (String?) -> Unit,
+    onReview: (String, ai.roadscan.core.model.ReviewDecision) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Box(Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
+            RsInspectorPanel(
+                state = state,
+                onSelect = onSelect,
+                onReview = onReview,
+                modifier = Modifier.fillMaxWidth().fillMaxHeight(),
+            )
+        }
+    }
+}
+
+/** Подписи пунктов готовности к смене. */
+@Composable
+private fun readinessTitles() = mapOf(
+    ai.roadscan.core.readiness.ReadinessStepId.PERMISSIONS to
+        stringResource(R.string.readiness_step_permissions),
+    ai.roadscan.core.readiness.ReadinessStepId.LICENSE to
+        stringResource(R.string.readiness_step_license),
+    ai.roadscan.core.readiness.ReadinessStepId.CALIBRATION to
+        stringResource(R.string.readiness_step_calibration),
+    ai.roadscan.core.readiness.ReadinessStepId.DOCUMENTS to
+        stringResource(R.string.readiness_step_documents),
+    ai.roadscan.core.readiness.ReadinessStepId.EQUIPMENT to
+        stringResource(R.string.readiness_step_equipment),
+)
+
+/** Подсказки по незакрытым пунктам готовности. */
+@Composable
+private fun readinessHints() = mapOf(
+    ai.roadscan.core.readiness.ReadinessStepId.PERMISSIONS to
+        stringResource(R.string.readiness_hint_permissions),
+    ai.roadscan.core.readiness.ReadinessStepId.LICENSE to
+        stringResource(R.string.readiness_hint_license),
+    ai.roadscan.core.readiness.ReadinessStepId.CALIBRATION to
+        stringResource(R.string.readiness_hint_calibration),
+    ai.roadscan.core.readiness.ReadinessStepId.DOCUMENTS to
+        stringResource(R.string.readiness_hint_documents),
+    ai.roadscan.core.readiness.ReadinessStepId.EQUIPMENT to
+        stringResource(R.string.readiness_hint_equipment),
+)
+
+/** Форматированные часы/дата в шапке консоли. */
+@Composable
+private fun rememberClockText(nowMs: Long, pattern: String): String =
+    remember(nowMs, pattern) {
+        SimpleDateFormat(pattern, Locale.getDefault()).format(Date(nowMs))
+    }
 
 /**
  * Предложение при низком заряде: фоновый режим с минимальным
@@ -295,7 +436,7 @@ private fun BatteryOfferDialog(
         confirmButton = {
             Button(
                 onClick = onBackgroundMode,
-                colors = ButtonDefaults.buttonColors(containerColor = Accent),
+                colors = ButtonDefaults.buttonColors(containerColor = RsTokens.accent),
             ) {
                 Text(stringResource(R.string.battery_low_background))
             }
@@ -308,7 +449,7 @@ private fun BatteryOfferDialog(
                 TextButton(onClick = onFinish) {
                     Text(
                         stringResource(R.string.battery_low_finish),
-                        color = Bad,
+                        color = RsTokens.bad,
                     )
                 }
             }
@@ -316,8 +457,14 @@ private fun BatteryOfferDialog(
     )
 }
 
+/**
+ * Фон экрана до старта смены.
+ *
+ * @param showHint показывать ли подсказку «Камеру вимкнено»: перед сменой
+ *   место занимает карточка готовности, и подсказка с ней конфликтует.
+ */
 @Composable
-private fun IdleBackdrop() {
+private fun IdleBackdrop(showHint: Boolean = true) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -326,6 +473,7 @@ private fun IdleBackdrop() {
             ),
         contentAlignment = Alignment.Center,
     ) {
+        if (!showHint) return@Box
         Column(
             modifier = Modifier.padding(start = 150.dp, end = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -364,251 +512,6 @@ private fun rememberClockMs(): Long {
 }
 
 @Composable
-private fun HudHeader(state: UiState, nowMs: Long) {
-    val city = state.city.ifBlank { stringResource(R.string.hud_city_unknown) }
-        .uppercase(Locale.getDefault())
-    val coordinates = if (state.latitude.isNaN() || state.longitude.isNaN()) {
-        stringResource(R.string.metric_none)
-    } else {
-        stringResource(
-            R.string.hud_coords,
-            abs(state.latitude),
-            if (state.latitude >= 0) "N" else "S",
-            abs(state.longitude),
-            if (state.longitude >= 0) "E" else "W",
-        )
-    }
-    val time = remember(nowMs) { SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(nowMs)) }
-    val date = remember(nowMs) { SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(nowMs)) }
-
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xF2050709), Color(0x00050709)),
-                ),
-            )
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(if (state.running) Good else Warn),
-            )
-            Spacer(Modifier.width(7.dp))
-            Text(
-                stringResource(R.string.hud_title),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.4.sp,
-                color = Color.White,
-            )
-            Spacer(Modifier.width(5.dp))
-            Text(
-                "($city)",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = Accent,
-            )
-            Spacer(Modifier.weight(1f))
-            StateChip(state.agentState)
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    state.street.ifBlank { stringResource(R.string.hud_street_unknown) },
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    coordinates,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = Muted,
-                    maxLines = 1,
-                )
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(
-                        "%.0f".format(Locale.US, state.speedKmh),
-                        fontSize = 32.sp,
-                        lineHeight = 32.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Color.White,
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        stringResource(R.string.hud_speed_unit),
-                        fontSize = 10.sp,
-                        color = Muted,
-                        modifier = Modifier.padding(bottom = 5.dp),
-                    )
-                }
-                Text(
-                    time,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = Color.White,
-                )
-                Text(date, fontSize = 9.sp, color = Muted)
-            }
-        }
-    }
-}
-
-@Composable
-private fun HudSidePanel(state: UiState, modifier: Modifier) {
-    val penalty = state.confirmed * 3 + state.visualOnly
-    val score = (100 - penalty).coerceIn(0, 100)
-    val qualityColor = when {
-        score >= 85 -> Good
-        score >= 60 -> Warn
-        else -> Bad
-    }
-    val qualityLabel = stringResource(
-        when {
-            score >= 85 -> R.string.hud_quality_good
-            score >= 60 -> R.string.hud_quality_fair
-            else -> R.string.hud_quality_poor
-        },
-    )
-
-    Card(
-        colors = CardDefaults.cardColors(containerColor = PanelBg),
-        border = androidx.compose.foundation.BorderStroke(1.dp, PanelBorder),
-        shape = RoundedCornerShape(14.dp),
-        modifier = modifier,
-    ) {
-        Column(Modifier.fillMaxHeight().padding(10.dp)) {
-            PanelTitle(stringResource(R.string.hud_road_surface))
-            Spacer(Modifier.height(2.dp))
-            Text(
-                stringResource(R.string.hud_percent, score),
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Black,
-                color = qualityColor,
-            )
-            Text(qualityLabel, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = qualityColor)
-            Spacer(Modifier.height(4.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(Color(0xFF232A31)),
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(score / 100f)
-                        .fillMaxHeight()
-                        .background(qualityColor),
-                )
-            }
-
-            Spacer(Modifier.height(10.dp))
-            PanelTitle(stringResource(R.string.hud_defects))
-            Spacer(Modifier.height(3.dp))
-            if (state.breakdown.isEmpty()) {
-                Text(
-                    stringResource(R.string.hud_no_defects),
-                    fontSize = 9.sp,
-                    color = Muted,
-                )
-            } else {
-                state.breakdown.forEach { (type, count) ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 1.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(defectColor(type)),
-                        )
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            defectTypeName(type),
-                            fontSize = 10.sp,
-                            color = Color(0xFFD7DEE5),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            "$count",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = defectColor(type),
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.weight(1f))
-
-            PanelTitle(stringResource(R.string.hud_system))
-            Spacer(Modifier.height(3.dp))
-            StatusRow(
-                stringResource(R.string.hud_battery),
-                stringResource(R.string.metric_percent, state.batteryPercent),
-                if (state.batteryPercent <= 20) Bad else null,
-            )
-            StatusRow(
-                stringResource(R.string.hud_temp),
-                if (state.cpuTempC.isNaN()) "—" else "%.0f°C".format(Locale.US, state.cpuTempC),
-                if (state.cpuTempC >= 42f) Warn else null,
-            )
-            StatusRow(
-                stringResource(R.string.hud_gps),
-                if (state.gpsAccuracyM.isNaN()) "—"
-                else stringResource(R.string.metric_gps_value, state.gpsAccuracyM),
-            )
-            StatusRow(
-                stringResource(R.string.hud_fps),
-                "${state.targetFps}",
-            )
-            StatusRow(
-                stringResource(R.string.hud_backend),
-                state.inferenceBackend,
-                if (state.inferenceBackend == "NNAPI") Good else null,
-            )
-            StatusRow(
-                stringResource(R.string.hud_latency),
-                if (state.latencyMs <= 0.0) "—"
-                else stringResource(R.string.hud_latency_value, state.latencyMs),
-            )
-
-            Spacer(Modifier.height(8.dp))
-            PanelTitle(stringResource(R.string.hud_map))
-            Spacer(Modifier.height(4.dp))
-            MiniMap(
-                track = state.track,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(84.dp),
-            )
-            if (state.track.size < 2) {
-                Text(
-                    stringResource(R.string.hud_map_empty),
-                    fontSize = 8.sp,
-                    color = Muted,
-                    maxLines = 2,
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun PanelTitle(text: String) {
     Text(
         text,
@@ -620,7 +523,7 @@ private fun PanelTitle(text: String) {
 }
 
 @Composable
-private fun StatusRow(label: String, value: String, valueColor: Color? = null) {
+internal fun StatusRow(label: String, value: String, valueColor: Color? = null) {
     Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
         Text(
             label,
@@ -642,7 +545,7 @@ private fun StatusRow(label: String, value: String, valueColor: Color? = null) {
 
 /** Мини-карта трека смены: последние ~2 км нормализуются в рамку панели. */
 @Composable
-private fun MiniMap(track: List<GeoPoint>, modifier: Modifier) {
+internal fun MiniMap(track: List<GeoPoint>, modifier: Modifier) {
     Canvas(
         modifier
             .clip(RoundedCornerShape(6.dp))
@@ -762,6 +665,7 @@ private fun HudFooter(
     onStart: () -> Unit,
     onStop: () -> Unit,
     onExitBackgroundMode: () -> Unit,
+    onShowDefects: (() -> Unit)? = null,
 ) {
     Column(
         Modifier
@@ -794,12 +698,30 @@ private fun HudFooter(
             )
             Spacer(Modifier.height(5.dp))
         }
-        Text(
-            stringResource(R.string.hud_counters, state.frames, state.confirmed, state.visualOnly),
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-            color = Muted,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.hud_counters, state.frames, state.confirmed, state.visualOnly),
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Muted,
+                modifier = Modifier.weight(1f),
+            )
+            if (onShowDefects != null) {
+                OutlinedButton(
+                    onClick = onShowDefects,
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        horizontal = 10.dp,
+                        vertical = 4.dp,
+                    ),
+                ) {
+                    Text(
+                        stringResource(R.string.hud_defects_button),
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+        }
         Spacer(Modifier.height(8.dp))
         Button(
             onClick = if (state.running) onStop else onStart,
@@ -850,7 +772,7 @@ private fun StateChip(state: AgentState) {
     }
 }
 
-private fun defectColor(type: DefectType): Color = when (type) {
+internal fun defectColor(type: DefectType): Color = when (type) {
     DefectType.POTHOLE -> Color(0xFFFF6B4A)
     DefectType.CRACK_NETWORK -> Warn
     DefectType.RUTTING -> Color(0xFF5AA9FF)
@@ -860,7 +782,7 @@ private fun defectColor(type: DefectType): Color = when (type) {
 }
 
 @Composable
-private fun defectTypeName(type: DefectType): String = stringResource(
+internal fun defectTypeName(type: DefectType): String = stringResource(
     when (type) {
         DefectType.POTHOLE -> R.string.type_pothole
         DefectType.CRACK_NETWORK -> R.string.type_crack

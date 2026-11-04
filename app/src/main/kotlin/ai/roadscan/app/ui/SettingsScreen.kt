@@ -49,10 +49,7 @@ import ai.roadscan.core.license.Edition
 import ai.roadscan.core.report.ReportMeta
 import java.util.Locale
 
-/** Статусы готовности: зелёный — работает, красный — блокирует смену. */
-private val DiagOk = Color(0xFF7CD0B0)
-private val DiagFail = Color(0xFFFF6B6B)
-private val DiagWarn = Color(0xFFFFC857)
+
 
 /**
  * Настройки комплекса: лицензия, калибровка под автомобиль и реквизиты
@@ -438,7 +435,7 @@ private fun DiagnosticsSection(
                 },
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (blocking == 0) DiagOk else DiagFail,
+                color = if (blocking == 0) RsTokens.ok else RsTokens.bad,
             )
             Spacer(Modifier.height(6.dp))
             checks.forEach { check ->
@@ -450,7 +447,7 @@ private fun DiagnosticsSection(
                         if (check.ok) "✓" else if (check.blocking) "✕" else "!",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (check.ok) DiagOk else if (check.blocking) DiagFail else DiagWarn,
+                        color = if (check.ok) RsTokens.ok else if (check.blocking) RsTokens.bad else RsTokens.warn,
                         modifier = Modifier.width(18.dp),
                     )
                     Column(Modifier.weight(1f)) {
