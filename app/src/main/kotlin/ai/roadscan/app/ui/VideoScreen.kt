@@ -39,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -84,11 +85,19 @@ fun VideoScreen(
     onShare: () -> Unit,
     onReset: () -> Unit,
     onClearMessage: () -> Unit,
+    onPurpose: (VideoMode) -> Unit,
+    onAddSurvey: (List<Uri>) -> Unit,
+    onRemoveSurvey: (String) -> Unit,
+    onClearSurvey: () -> Unit,
+    onSurvey: () -> Unit,
     padding: PaddingValues,
 ) {
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri -> uri?.let(onPick) }
+    val multiLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(6),
+    ) { uris -> if (uris.isNotEmpty()) onAddSurvey(uris) }
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(state.message) {
@@ -124,17 +133,41 @@ fun VideoScreen(
             }
 
             item {
-                VideoSourceCard(
-                    state = state,
-                    onPick = {
-                        launcher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
-                        )
-                    },
+                PurposeCard(
+                    purpose = state.purpose,
+                    enabled = !state.busy,
+                    onPurpose = onPurpose,
                 )
             }
 
-            if (state.info != null) {
+            if (state.purpose == VideoMode.SURVEY) {
+                item {
+                    SurveyCard(
+                        state = state,
+                        onAdd = {
+                            multiLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
+                            )
+                        },
+                        onRemove = onRemoveSurvey,
+                        onClear = onClearSurvey,
+                        onSurvey = onSurvey,
+                    )
+                }
+            } else {
+                item {
+                    VideoSourceCard(
+                        state = state,
+                        onPick = {
+                            launcher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
+                            )
+                        },
+                    )
+                }
+            }
+
+            if (state.purpose == VideoMode.MONTAGE && state.info != null) {
                 item {
                     ModeCard(
                         mode = state.mode,
@@ -146,9 +179,9 @@ fun VideoScreen(
 
             if (state.busy) {
                 item { ProgressCard(state, onCancel) }
-            } else if (state.result != null && state.summary != null) {
+            } else if (state.purpose == VideoMode.MONTAGE && state.result != null && state.summary != null) {
                 item { ResultCard(state, onShare, onReset) }
-            } else if (state.info != null) {
+            } else if (state.purpose == VideoMode.MONTAGE && state.info != null) {
                 item {
                     Button(
                         onClick = onStart,
@@ -178,6 +211,154 @@ fun VideoScreen(
         }
 
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+    }
+}
+
+/** Переключатель режима видеоконтура: ролик-обзор или обследование участка. */
+@Composable
+private fun PurposeCard(
+    purpose: VideoMode,
+    enabled: Boolean,
+    onPurpose: (VideoMode) -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    VideoMode.MONTAGE to R.string.video_purpose_montage,
+                    VideoMode.SURVEY to R.string.video_purpose_survey,
+                ).forEach { (mode, label) ->
+                    if (purpose == mode) {
+                        Button(onClick = { onPurpose(mode) }, modifier = Modifier.weight(1f)) {
+                            Text(stringResource(label), fontSize = 12.sp)
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = { onPurpose(mode) },
+                            enabled = enabled,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(stringResource(label), fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Очередь обследования: готовые ролики из галереи -> дефекты -> ведомость.
+ */
+@Composable
+private fun SurveyCard(
+    state: VideoUiState,
+    onAdd: () -> Unit,
+    onRemove: (String) -> Unit,
+    onClear: () -> Unit,
+    onSurvey: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                stringResource(R.string.video_survey_queue),
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                stringResource(R.string.video_survey_hint),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.video_survey_section_hint),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
+
+            if (state.surveyQueue.isEmpty()) {
+                Text(
+                    stringResource(R.string.video_survey_empty),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                state.surveyQueue.forEach { item ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                item.name,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                when (item.state) {
+                                    SurveyItemState.WAITING ->
+                                        item.info?.let { "${it.durationLabel} · ${it.resolutionLabel}" } ?: "…"
+
+                                    SurveyItemState.ANALYZING -> stringResource(R.string.video_survey_running)
+                                    SurveyItemState.DONE ->
+                                        stringResource(R.string.video_survey_done_item, item.defects, item.confirmed)
+
+                                    SurveyItemState.FAILED ->
+                                        item.error ?: stringResource(R.string.video_survey_failed)
+                                },
+                                fontSize = 10.sp,
+                                color = if (item.state == SurveyItemState.FAILED) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                        if (!state.busy) {
+                            TextButton(onClick = { onRemove(item.id) }) {
+                                Text("✕", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onAdd, enabled = !state.busy, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.video_survey_add), fontSize = 12.sp)
+                }
+                if (state.surveyQueue.isNotEmpty()) {
+                    OutlinedButton(onClick = onClear, enabled = !state.busy, modifier = Modifier.weight(1f)) {
+                        Text(stringResource(R.string.video_survey_clear), fontSize = 12.sp)
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = onSurvey,
+                enabled = !state.busy && state.surveyQueue.isNotEmpty(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Icon(Icons.Filled.Movie, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.video_survey_run), fontWeight = FontWeight.Bold)
+            }
+        }
     }
 }
 

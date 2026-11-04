@@ -27,6 +27,20 @@ data class ReportMeta(
     /** Транспортное средство и госномер. */
     val vehicle: String = "",
     val weather: String = "",
+    /**
+     * Участок дороги для видеообследования: километраж «от–до».
+     *
+     * В готовом видео нет GPS, поэтому положение дефекта восстанавливается
+     * по километражу: приложение раскладывает дефекты по участку
+     * пропорционально времени в ролике.
+     */
+    val sectionKmFrom: Double = 0.0,
+    val sectionKmTo: Double = 0.0,
+    /** Начальная точка участка (если известна) — для геометрии в GeoJSON. */
+    val sectionStartLat: Double? = null,
+    val sectionStartLon: Double? = null,
+    /** Азимут оси участка от начала, градусы (0 — на север). */
+    val sectionBearingDeg: Double = 0.0,
     /** Демонстрационный режим: документы помечаются водяным знаком. */
     val demo: Boolean = false,
 ) {
@@ -38,6 +52,16 @@ data class ReportMeta(
     fun headline(): String = listOf(objectName, roadName)
         .filter { it.isNotBlank() }
         .joinToString(" · ")
+
+    /** Участок дороги в виде, пригодном для видеообследования. */
+    fun section(): ai.roadscan.core.video.RoadSection = ai.roadscan.core.video.RoadSection(
+        roadName = roadName,
+        kmFrom = sectionKmFrom,
+        kmTo = sectionKmTo,
+        startLat = sectionStartLat,
+        startLon = sectionStartLon,
+        bearingDeg = sectionBearingDeg,
+    )
 
     fun isEmpty(): Boolean = this == EMPTY
 

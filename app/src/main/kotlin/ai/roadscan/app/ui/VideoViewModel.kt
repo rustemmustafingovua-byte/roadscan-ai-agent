@@ -17,8 +17,10 @@ import ai.roadscan.app.video.VideoInfo
 import ai.roadscan.app.video.VideoMontageRenderer
 import ai.roadscan.app.video.VideoProbe
 import ai.roadscan.app.video.VideoTexts
+import ai.roadscan.core.agent.PostProcessingAgent
 import ai.roadscan.core.model.DefectType
 import ai.roadscan.core.video.MontageMode
+import ai.roadscan.core.video.VideoSurveyPlanner
 import ai.roadscan.core.video.MontagePlanner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +37,25 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 enum class VideoStage { IDLE, PROBING, ANALYZING, RENDERING, DONE, ERROR }
+
+/** Режим видеоконтура: ролик-обзор или обследование участка. */
+enum class VideoMode { MONTAGE, SURVEY }
+
+/** Состояние одного видео в очереди обследования. */
+enum class SurveyItemState { WAITING, ANALYZING, DONE, FAILED }
+
+data class SurveyQueueItem(
+    val id: String,
+    val uri: android.net.Uri,
+    val name: String,
+    val info: VideoInfo? = null,
+    val state: SurveyItemState = SurveyItemState.WAITING,
+    val defects: Int = 0,
+    val confirmed: Int = 0,
+    val error: String? = null,
+) {
+    val isRunning: Boolean get() = state == SurveyItemState.ANALYZING
+}
 
 data class VideoSummary(
     val defects: Int,
@@ -54,6 +75,15 @@ data class VideoUiState(
     val summary: VideoSummary? = null,
     val message: String? = null,
     val demoWatermark: Boolean = false,
+    /** Режим работы видеоконтура. */
+    val purpose: VideoMode = VideoMode.MONTAGE,
+    /** Очередь видео для обследования участка. */
+    val surveyQueue: List<SurveyQueueItem> = emptyList(),
+    /** Итог обследования: смена с ведомостью и сметой. */
+    val surveySessionId: String? = null,
+    val surveyDefects: Int = 0,
+    val surveyConfirmed: Int = 0,
+    val surveyAreaM2: Double = 0.0,
 ) {
     val busy: Boolean
         get() = stage == VideoStage.PROBING ||
@@ -249,6 +279,218 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearMessage() {
         _state.update { it.copy(message = null) }
+    }
+
+    // ------------------------------------------------------------ обследование
+
+    /** Переключение режима: ролик-обзор или обследование участка. */
+    fun setPurpose(mode: VideoMode) {
+        if (_state.value.busy) return
+        _state.update { it.copy(purpose = mode) }
+    }
+
+    /**
+     * Добавляет видео в очередь обследования.
+     *
+     * Несколько роликов — это несколько участков или продолжение одного:
+     * дефекты из всех файлов сводятся в одну ведомость и одну смету.
+     */
+    fun addToSurvey(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val existing = _state.value.surveyQueue
+        val stamp = System.currentTimeMillis()
+        val items = uris.mapIndexed { index, uri ->
+            SurveyQueueItem(
+                id = "V$stamp-$index",
+                uri = uri,
+                name = uri.lastPathSegment ?: "video-$index",
+            )
+        }
+        _state.update {
+            it.copy(
+                purpose = VideoMode.SURVEY,
+                surveyQueue = existing + items,
+                message = null,
+            )
+        }
+        // Зонд сразу: оператор видит длительность и разрешение каждого ролика.
+        viewModelScope.launch {
+            for (item in items) {
+                val info = withContext(Dispatchers.IO) {
+                    VideoProbe.probe(getApplication(), item.uri)
+                }
+                updateQueueItem(item.id) {
+                    if (info == null) {
+                        it.copy(state = SurveyItemState.FAILED, error = "unsupported video")
+                    } else {
+                        // Имя берём из зонда: Photo Picker отдаёт внутренний id
+                        // («1000000018.mp4»), в ведомости такое не годится.
+                        it.copy(info = info, name = info.displayName)
+                    }
+                }
+            }
+        }
+    }
+
+    fun removeFromSurvey(id: String) {
+        if (_state.value.busy) return
+        _state.update { it.copy(surveyQueue = it.surveyQueue.filterNot { item -> item.id == id }) }
+    }
+
+    fun clearSurvey() {
+        if (_state.value.busy) return
+        _state.update {
+            it.copy(
+                surveyQueue = emptyList(),
+                surveySessionId = null,
+                surveyDefects = 0,
+                surveyConfirmed = 0,
+                surveyAreaM2 = 0.0,
+            )
+        }
+    }
+
+    private fun updateQueueItem(id: String, transform: (SurveyQueueItem) -> SurveyQueueItem) {
+        _state.update {
+            it.copy(surveyQueue = it.surveyQueue.map { item -> if (item.id == id) transform(item) else item })
+        }
+    }
+
+    /**
+     * Обследование: анализ всех видео очереди -> ведомость дефектов + смета.
+     *
+     * Подтверждение дефекта в видео — устойчивое присутствие в кадрах:
+     * настоящая яма видна в ряде соседних сэмплов, а блик или тень — нет.
+     * Результат сохраняется как смена и открывается во вкладке «Звіт».
+     */
+    fun startSurvey() {
+        if (job?.isActive == true) return
+        val queue = _state.value.surveyQueue
+        if (queue.isEmpty()) return
+        val application = getApplication<Application>()
+        val section = container.settings.reportMeta().section()
+        val calibration = container.settings.calibration()
+        val meta = container.settings.reportMeta()
+        val license = container.settings.licenseState()
+
+        _state.update {
+            it.copy(
+                purpose = VideoMode.SURVEY,
+                stage = VideoStage.ANALYZING,
+                progress = 0f,
+                stageLabel = str(R.string.video_stage_analyze, 0),
+                message = null,
+                surveySessionId = null,
+                surveyDefects = 0,
+                surveyConfirmed = 0,
+                surveyAreaM2 = 0.0,
+            )
+        }
+
+        job = viewModelScope.launch(Dispatchers.Default) {
+            val records = mutableListOf<ai.roadscan.core.model.DefectRecord>()
+            var done = 0
+            for (item in queue) {
+                if (!isActive) throw CancellationException("survey cancelled")
+                updateQueueItem(item.id) { it.copy(state = SurveyItemState.ANALYZING, error = null) }
+                try {
+                    val info = item.info
+                    if (info == null) {
+                        updateQueueItem(item.id) {
+                            it.copy(state = SurveyItemState.FAILED, error = "unsupported video")
+                        }
+                        done++
+                        continue
+                    }
+                    val decoder = VideoStreamDecoder(application, info)
+                    val analysis = try {
+                        VideoAnalyzer(detector = detectorLazy.value::detect).analyze(
+                            decoder = decoder,
+                            info = info,
+                            isActive = { isActive },
+                            onProgress = { fraction ->
+                                publish(
+                                    VideoStage.ANALYZING,
+                                    fraction = (done + fraction) / queue.size,
+                                    labelRes = R.string.video_stage_analyze,
+                                )
+                            },
+                        )
+                    } finally {
+                        decoder.close()
+                    }
+
+                    val defects = VideoSurveyPlanner.plan(
+                        analysis = analysis,
+                        section = section,
+                        calibration = calibration,
+                        width = info.width,
+                        height = info.height,
+                        sessionId = "SURVEY-${item.id}",
+                    )
+                    records += defects.map { it.toRecord("SURVEY-${item.id}") }
+                    updateQueueItem(item.id) {
+                        it.copy(
+                            state = SurveyItemState.DONE,
+                            defects = defects.size,
+                            confirmed = defects.count { d -> d.confirmed },
+                        )
+                    }
+                } catch (cancelled: CancellationException) {
+                    updateQueueItem(item.id) { it.copy(state = SurveyItemState.WAITING) }
+                    throw cancelled
+                } catch (error: Throwable) {
+                    updateQueueItem(item.id) {
+                        it.copy(
+                            state = SurveyItemState.FAILED,
+                            error = error.message ?: error.javaClass.simpleName,
+                        )
+                    }
+                }
+                done++
+                publish(
+                    VideoStage.ANALYZING,
+                    fraction = done.toFloat() / queue.size,
+                    labelRes = R.string.video_stage_analyze,
+                )
+            }
+
+            if (!isActive) throw CancellationException("survey cancelled")
+
+            val sessionId = "SUR-" + System.currentTimeMillis().toString().takeLast(8)
+            val sessionMeta = meta.copy(demo = !license.isLicensed(System.currentTimeMillis()))
+            val report = PostProcessingAgent(calibration.applyTo(container.config), container.priceCatalog)
+                .process(
+                    sessionId = sessionId,
+                    startedAtMs = System.currentTimeMillis() - queue.sumOf { it.info?.durationMs ?: 0L },
+                    endedAtMs = System.currentTimeMillis(),
+                    defects = records,
+                    stats = ai.roadscan.core.agent.SessionStats(
+                        confirmed = records.count { it.confirmed },
+                        visualOnly = records.count { !it.confirmed },
+                    ),
+                    meta = sessionMeta,
+                    calibration = calibration,
+                )
+            withContext(Dispatchers.IO) { runCatching { container.repository.save(report) } }
+
+            _state.update {
+                it.copy(
+                    stage = VideoStage.DONE,
+                    progress = 1f,
+                    stageLabel = "",
+                    surveySessionId = sessionId,
+                    surveyDefects = records.size,
+                    surveyConfirmed = records.count { r -> r.confirmed },
+                    surveyAreaM2 = report.estimate.totalAreaM2,
+                    message = str(
+                        R.string.video_survey_done,
+                        records.size,
+                        records.count { r -> r.confirmed },
+                    ),
+                )
+            }
+        }
     }
 
     fun share() {

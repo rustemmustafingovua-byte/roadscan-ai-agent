@@ -58,6 +58,24 @@ PY
 
 scroll_down() { adb shell input swipe 540 1700 540 700 250; sleep 1; }
 
+# Прокрутка до элемента: пока не найдём — листаем вниз.
+scroll_to() {
+  local label="$1" i
+  for i in 1 2 3 4 5 6; do
+    dump_ui
+    if grep -q "text=\"$label\"" /tmp/ui.xml 2>/dev/null; then return 0; fi
+    scroll_down
+  done
+  return 1
+}
+
+# Файлы приложения: run-as не работает для release-сборки, поэтому adb root.
+app_files() {
+  adb root >/dev/null 2>&1
+  sleep 1
+  adb shell find /data/data/ai.roadscan.app/cache/exports -type f 2>/dev/null
+}
+
 say "1. Чистый старт"
 adb logcat -c
 adb shell pm clear $PKG >/dev/null
@@ -130,7 +148,7 @@ sleep 6
 
 say "6. Демо-отчет + экспорт PDF/XLSX/GeoJSON"
 adb shell input tap 950 2274; sleep 2
-scroll_down; scroll_down; scroll_down
+scroll_to "Сформувати демо-звіт" || echo "  ! кнопка демо не найдена"
 tap "Сформувати демо-звіт" || true
 sleep 5
 adb shell input tap 678 2274; sleep 3   # Звіт
@@ -141,7 +159,7 @@ adb shell input keyevent KEYCODE_BACK; sleep 1
 tap "GeoJSON" || true; sleep 4
 adb shell input keyevent KEYCODE_BACK; sleep 1
 echo "  файлы:"
-adb shell run-as $PKG find cache/exports -type f 2>/dev/null | sed 's/^/    /'
+app_files | sed 's/^/    /'
 
 say "7. Видеостудия"
 adb shell input tap 403 2274; sleep 2   # Відео

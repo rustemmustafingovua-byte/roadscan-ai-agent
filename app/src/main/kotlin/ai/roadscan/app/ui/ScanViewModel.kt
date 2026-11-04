@@ -523,6 +523,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             ReportFormat.PDF -> "pdf"
             ReportFormat.XLSX -> "xlsx"
             ReportFormat.GEOJSON -> "geojson"
+            ReportFormat.PACKAGE -> "pdf"
         }
         if (!license.hasFeature(feature)) {
             _state.update { it.copy(message = str(R.string.msg_feature_unavailable, format.name)) }

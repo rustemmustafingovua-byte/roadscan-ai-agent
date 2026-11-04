@@ -297,6 +297,11 @@ private fun DocumentsSection(meta: ReportMeta, onSave: (ReportMeta) -> Unit) {
     var operator by remember(meta) { mutableStateOf(meta.operatorName) }
     var vehicle by remember(meta) { mutableStateOf(meta.vehicle) }
     var weather by remember(meta) { mutableStateOf(meta.weather) }
+    var kmFrom by remember(meta) { mutableStateOf(if (meta.sectionKmFrom > 0) meta.sectionKmFrom.toString() else "") }
+    var kmTo by remember(meta) { mutableStateOf(if (meta.sectionKmTo > 0) meta.sectionKmTo.toString() else "") }
+    var sectionLat by remember(meta) { mutableStateOf(meta.sectionStartLat?.toString() ?: "") }
+    var sectionLon by remember(meta) { mutableStateOf(meta.sectionStartLon?.toString() ?: "") }
+    var bearing by remember(meta) { mutableStateOf(if (meta.sectionBearingDeg != 0.0) meta.sectionBearingDeg.toString() else "") }
 
     SectionCard(stringResource(R.string.settings_meta)) {
         Text(
@@ -317,6 +322,46 @@ private fun DocumentsSection(meta: ReportMeta, onSave: (ReportMeta) -> Unit) {
             Field(stringResource(R.string.settings_meta_vehicle), vehicle, Modifier.weight(1f)) { vehicle = it }
             Field(stringResource(R.string.settings_meta_weather), weather, Modifier.weight(1f)) { weather = it }
         }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            stringResource(R.string.settings_meta_section_hint),
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Field(
+                stringResource(R.string.settings_meta_section_km_from),
+                kmFrom,
+                Modifier.weight(1f),
+                keyboard = KeyboardType.Decimal,
+            ) { kmFrom = it }
+            Field(
+                stringResource(R.string.settings_meta_section_km_to),
+                kmTo,
+                Modifier.weight(1f),
+                keyboard = KeyboardType.Decimal,
+            ) { kmTo = it }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Field(
+                stringResource(R.string.settings_meta_section_lat),
+                sectionLat,
+                Modifier.weight(1f),
+                keyboard = KeyboardType.Decimal,
+            ) { sectionLat = it }
+            Field(
+                stringResource(R.string.settings_meta_section_lon),
+                sectionLon,
+                Modifier.weight(1f),
+                keyboard = KeyboardType.Decimal,
+            ) { sectionLon = it }
+        }
+        Field(
+            stringResource(R.string.settings_meta_section_bearing),
+            bearing,
+            keyboard = KeyboardType.Decimal,
+        ) { bearing = it }
         Spacer(Modifier.height(10.dp))
         Button(
             onClick = {
@@ -330,6 +375,11 @@ private fun DocumentsSection(meta: ReportMeta, onSave: (ReportMeta) -> Unit) {
                         operatorName = operator,
                         vehicle = vehicle,
                         weather = weather,
+                        sectionKmFrom = kmFrom.toDoubleOrNull() ?: 0.0,
+                        sectionKmTo = kmTo.toDoubleOrNull() ?: 0.0,
+                        sectionStartLat = sectionLat.toDoubleOrNull(),
+                        sectionStartLon = sectionLon.toDoubleOrNull(),
+                        sectionBearingDeg = bearing.toDoubleOrNull() ?: 0.0,
                     ),
                 )
             },
@@ -500,6 +550,7 @@ private fun Field(
     label: String,
     value: String,
     modifier: Modifier = Modifier.fillMaxWidth(),
+    keyboard: KeyboardType = KeyboardType.Text,
     onChange: (String) -> Unit,
 ) {
     OutlinedTextField(
@@ -508,6 +559,6 @@ private fun Field(
         label = { Text(label, fontSize = 11.sp) },
         modifier = modifier,
         singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+        keyboardOptions = KeyboardOptions(keyboardType = keyboard),
     )
 }

@@ -14,6 +14,8 @@ enum class ReportFormat(val extension: String, val mime: String) {
     PDF("pdf", "application/pdf"),
     XLSX("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
     GEOJSON("geojson", "application/geo+json"),
+    /** Комплект документов: ведомость + смета + геоданные + манифест, одним ZIP. */
+    PACKAGE("zip", "application/zip"),
 }
 
 /** Формирование пакета документов и шаринг через FileProvider. */
@@ -29,8 +31,38 @@ class ExportManager(
             ReportFormat.PDF -> file.writeBytes(PdfReportGenerator(strings).generate(report))
             ReportFormat.XLSX -> file.writeBytes(ReportXlsxBuilder.build(report, strings))
             ReportFormat.GEOJSON -> file.writeText(GeoJsonExporter.export(report, strings = strings))
+            ReportFormat.PACKAGE -> file.writeBytes(buildPackage(report))
         }
         return file
+    }
+
+    /**
+     * Комплект для передачи заказчику: ведомость, смета, геоданные и
+     * манифест с реквизитами и контрольными суммами — одним архивом.
+     */
+    private fun buildPackage(report: SessionReport): ByteArray {
+        val files = listOf(
+            ai.roadscan.core.report.PackageFile(
+                name = "VEDOMIST.pdf",
+                content = PdfReportGenerator(strings).generate(report),
+                role = "Ведомость дефектів",
+            ),
+            ai.roadscan.core.report.PackageFile(
+                name = "KOSHTORYS.xlsx",
+                content = ReportXlsxBuilder.build(report, strings),
+                role = "Кошторис",
+            ),
+            ai.roadscan.core.report.PackageFile(
+                name = "OBYEKT.geojson",
+                content = GeoJsonExporter.export(report, strings = strings).toByteArray(Charsets.UTF_8),
+                role = "Геодані для ГІС",
+            ),
+        )
+        return ai.roadscan.core.report.PackageBuilder.build(
+            sessionId = report.sessionId,
+            meta = report.meta,
+            files = files,
+        )
     }
 
     fun shareIntent(file: File, format: ReportFormat): Intent {

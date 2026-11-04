@@ -187,6 +187,11 @@ fun RoadScanRoot(
                 onShare = videoViewModel::share,
                 onReset = videoViewModel::reset,
                 onClearMessage = videoViewModel::clearMessage,
+                onPurpose = videoViewModel::setPurpose,
+                onAddSurvey = videoViewModel::addToSurvey,
+                onRemoveSurvey = videoViewModel::removeFromSurvey,
+                onClearSurvey = videoViewModel::clearSurvey,
+                onSurvey = videoViewModel::startSurvey,
                 padding = padding,
             )
 
@@ -1036,6 +1041,23 @@ private fun ExportRow(busy: Boolean, onExport: (ReportFormat) -> Unit) {
             ExportButton("Excel", Icons.Filled.TableChart, Modifier.weight(1f)) { onExport(ReportFormat.XLSX) }
             ExportButton("GeoJSON", Icons.Filled.Map, Modifier.weight(1f)) { onExport(ReportFormat.GEOJSON) }
         }
+        Spacer(Modifier.height(8.dp))
+        // Комплект для передачи заказчику: всё одним архивом + манифест.
+        OutlinedButton(
+            onClick = { onExport(ReportFormat.PACKAGE) },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+        ) {
+            Icon(Icons.Filled.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(stringResource(R.string.report_package), fontSize = 12.sp)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            stringResource(R.string.report_package_hint),
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
