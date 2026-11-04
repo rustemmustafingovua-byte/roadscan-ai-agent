@@ -105,6 +105,12 @@
     <string name="settings_legal_hint">Лицензионное соглашение и политика конфиденциальности — офлайн, на устройстве.</string>
     <string name="settings_legal_eula">Лицензионное соглашение</string>
     <string name="settings_legal_privacy">Политика конфиденциальности</string>
+    <string name="settings_diagnostics">Проверка готовности</string>
+    <string name="settings_diagnostics_hint">Перед выездом проверьте комплект: модель, камера, датчик, GNSS, место, заряд и лицензия. Все проверки выполняются офлайн.</string>
+    <string name="settings_diagnostics_run">Проверить оборудование</string>
+    <string name="settings_diagnostics_ok">Комплект готов к смене</string>
+    <string name="settings_diagnostics_fail">Не готово: проблем — %1$d</string>
+    <string name="settings_legal_thirdparty">Сторонние компоненты</string>
     <string name="legal_close">Закрыть</string>
     <string name="settings_footer">RoadScan AI Agent · офлайн-обработка, данные не покидают устройство</string>
 

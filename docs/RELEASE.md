@@ -104,7 +104,7 @@ R8 ламає саме те, що працює в debug, тому перед п�
   аналітику. У формі Data safety вказати «дані не передаються».
 * **Ліцензія**: безкоштовне завантаження + активація ключем, або закритий
   трек для конкретного замовника (internal/closed testing).
-* **Розмір**: release APK ≈ 27 МБ (модель 10 МБ + LiteRT). Для Play краще
+* **Розмір**: release APK ≈ 44 МБ (модель 26 МБ int8 + LiteRT). Для Play краще
   Android App Bundle: `./gradlew :app:bundleRelease`.
 * **Іконка**: монохромна іконка для themed icons поки відсутня
   (`MonochromeLauncherIcon`), додати перед публікацією.

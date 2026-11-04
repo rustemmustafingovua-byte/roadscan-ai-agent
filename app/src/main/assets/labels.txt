@@ -1,6 +1,7 @@
-longitudinal
-equal interval
-alligator
-pothole
-crosswalk blur
-whiteline blur
+Heavy-Vehicle
+Light-Vehicle
+Pedestrian
+Crack
+Crack-Severe
+Pothole
+Speed-Bump

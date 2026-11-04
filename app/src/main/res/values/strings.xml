@@ -111,6 +111,12 @@
     <string name="settings_legal_hint">Ліцензійна угода та політика конфіденційності — офлайн, на пристрої.</string>
     <string name="settings_legal_eula">Ліцензійна угода</string>
     <string name="settings_legal_privacy">Політика конфіденційності</string>
+    <string name="settings_diagnostics">Перевірка готовності</string>
+    <string name="settings_diagnostics_hint">Перед виїздом перевірте комплект: модель, камера, датчик, GNSS, місце, заряд і ліцензія. Усе перевірки робляться офлайн.</string>
+    <string name="settings_diagnostics_run">Перевірити обладнання</string>
+    <string name="settings_diagnostics_ok">Комплект готовий до зміни</string>
+    <string name="settings_diagnostics_fail">Не готово: проблем — %1$d</string>
+    <string name="settings_legal_thirdparty">Сторонні компоненти</string>
     <string name="legal_close">Закрити</string>
     <string name="settings_footer">RoadScan AI Agent · офлайн-обробка, дані не залишають пристрій</string>
 

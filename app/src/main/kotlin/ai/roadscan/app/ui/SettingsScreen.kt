@@ -43,10 +43,16 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ai.roadscan.app.R
+import ai.roadscan.app.diagnostics.DiagnosticCheck
 import ai.roadscan.core.calibration.CalibrationProfile
 import ai.roadscan.core.license.Edition
 import ai.roadscan.core.report.ReportMeta
 import java.util.Locale
+
+/** Статусы готовности: зелёный — работает, красный — блокирует смену. */
+private val DiagOk = Color(0xFF7CD0B0)
+private val DiagFail = Color(0xFFFF6B6B)
+private val DiagWarn = Color(0xFFFFC857)
 
 /**
  * Настройки комплекса: лицензия, калибровка под автомобиль и реквизиты
@@ -60,6 +66,7 @@ fun SettingsScreen(
     onActivateLicense: (String) -> Unit,
     onDeactivateLicense: () -> Unit,
     onLoadDemo: () -> Unit,
+    onRunDiagnostics: () -> Unit,
     padding: PaddingValues,
 ) {
     var legalDoc by remember { mutableStateOf<LegalDoc?>(null) }
@@ -85,6 +92,7 @@ fun SettingsScreen(
                     )
                 }
             }
+            item { DiagnosticsSection(state.diagnostics, onRunDiagnostics) }
             item { LicenseSection(state, onActivateLicense, onDeactivateLicense) }
             item { CalibrationSection(state.calibration, onSaveCalibration) }
             item { DocumentsSection(state.meta, onSaveMeta) }
@@ -351,6 +359,65 @@ private fun DemoSection(onLoadDemo: () -> Unit) {
 }
 
 /**
+ * Проверка готовности комплекта: модель, камера, датчик, GNSS, место, заряд,
+ * лицензия. Оператор запускает её перед выездом — в поле уже не разберёшься.
+ */
+@Composable
+private fun DiagnosticsSection(
+    checks: List<DiagnosticCheck>,
+    onRun: () -> Unit,
+) {
+    SectionCard(stringResource(R.string.settings_diagnostics)) {
+        Text(
+            stringResource(R.string.settings_diagnostics_hint),
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(onClick = onRun, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.settings_diagnostics_run))
+        }
+        if (checks.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            val blocking = checks.count { !it.ok && it.blocking }
+            Text(
+                if (blocking == 0) {
+                    stringResource(R.string.settings_diagnostics_ok)
+                } else {
+                    stringResource(R.string.settings_diagnostics_fail, blocking)
+                },
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (blocking == 0) DiagOk else DiagFail,
+            )
+            Spacer(Modifier.height(6.dp))
+            checks.forEach { check ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (check.ok) "✓" else if (check.blocking) "✕" else "!",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (check.ok) DiagOk else if (check.blocking) DiagFail else DiagWarn,
+                        modifier = Modifier.width(18.dp),
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(check.title, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            check.detail,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Правовые документы поставляются в APK (assets/legal) и открываются офлайн:
  * у дорожной службы нет гарантированного интернета в поле.
  */
@@ -370,12 +437,17 @@ private fun LegalSection(onOpen: (LegalDoc) -> Unit) {
         OutlinedButton(onClick = { onOpen(LegalDoc.Privacy) }, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.settings_legal_privacy))
         }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = { onOpen(LegalDoc.ThirdParty) }, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.settings_legal_thirdparty))
+        }
     }
 }
 
 private enum class LegalDoc(val titleRes: Int, val assetBase: String) {
     Eula(R.string.settings_legal_eula, "eula"),
     Privacy(R.string.settings_legal_privacy, "privacy"),
+    ThirdParty(R.string.settings_legal_thirdparty, "thirdparty"),
 }
 
 @Composable

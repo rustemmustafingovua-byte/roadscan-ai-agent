@@ -40,7 +40,11 @@ class YoloV8Detector(
     private val assetName: String = "roadscan_yolov8.tflite",
     private val confidenceThreshold: Float = 0.35f,
     private val iouThreshold: Float = 0.45f,
-    private val inputSize: Int = 640,
+    /**
+     * Размер входа модели; null -> берём из тензора (тогда смена модели
+     * не требует правки кода).
+     */
+    inputSize: Int? = null,
     numThreads: Int = 4,
 ) : VisionDetector, Closeable {
 
@@ -63,9 +67,43 @@ class YoloV8Detector(
     var backend: Backend = Backend.XNNPACK
         private set
 
+    /**
+     * Разрешение входа модели (по умолчанию — из её тензора).
+     * Меняется только при пересоздании интерпретатора, поэтому val.
+     */
+    val resolvedInputSize: Int
+
+    // --- переиспользуемые буферы ---
+    private val inputBuffer: ByteBuffer
+    private val pixels: IntArray
+    private val letterboxBitmap: Bitmap
+    private val canvas: Canvas
+    private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
+
     init {
         interpreter = createInterpreter(preferNnapi = true)
         backend = if (interpreter != null && nnapiActive) Backend.NNAPI else Backend.XNNPACK
+        val size = inputSize ?: detectInputSize(interpreter)
+        resolvedInputSize = size
+        inputBuffer = ByteBuffer
+            .allocateDirect(1 * size * size * 3 * 4)
+            .order(ByteOrder.nativeOrder())
+        pixels = IntArray(size * size)
+        letterboxBitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        canvas = Canvas(letterboxBitmap)
+    }
+
+    /** Разрешение входа модели по её тензору. */
+    private fun detectInputSize(interp: Interpreter?): Int {
+        val shape = runCatching { interp?.getInputTensor(0)?.shape() }.getOrNull() ?: return DEFAULT_INPUT_SIZE
+        if (shape.size != 4) return DEFAULT_INPUT_SIZE
+        // NCHW: [1, 3, H, W]; NHWC: [1, H, W, 3].
+        val candidate = when {
+            shape[1] == 3 -> shape[2]
+            shape[3] == 3 -> shape[1]
+            else -> shape[2]
+        }
+        return if (candidate in 64..2048) candidate else DEFAULT_INPUT_SIZE
     }
 
     /**
@@ -136,14 +174,6 @@ class YoloV8Detector(
     /** Признак того, что модель ожидает NCHW (обычно NHWC). */
     private var channelsFirst: Boolean? = null
 
-    // --- переиспользуемые буферы ---
-    private val inputBuffer: ByteBuffer = ByteBuffer
-        .allocateDirect(1 * inputSize * inputSize * 3 * 4)
-        .order(ByteOrder.nativeOrder())
-    private val pixels = IntArray(inputSize * inputSize)
-    private val letterboxBitmap: Bitmap = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888)
-    private val canvas = Canvas(letterboxBitmap)
-    private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
 
     private var output: Array<Array<FloatArray>>? = null
     private var outputChannels = 0
@@ -176,9 +206,9 @@ class YoloV8Detector(
             val detections = mutableListOf<VisionDetection>()
             val classCount = outputChannels - 4
             val normalized = coordinatesNormalized(boxes, outputCandidates)
-            val scale = min(inputSize.toFloat() / bitmap.width, inputSize.toFloat() / bitmap.height)
-            val padX = (inputSize - bitmap.width * scale) / 2f
-            val padY = (inputSize - bitmap.height * scale) / 2f
+            val scale = min(resolvedInputSize.toFloat() / bitmap.width, resolvedInputSize.toFloat() / bitmap.height)
+            val padX = (resolvedInputSize - bitmap.width * scale) / 2f
+            val padY = (resolvedInputSize - bitmap.height * scale) / 2f
 
             for (i in 0 until outputCandidates) {
                 var bestScore = 0f
@@ -230,17 +260,17 @@ class YoloV8Detector(
     }
 
     private fun drawLetterbox(source: Bitmap) {
-        val scale = min(inputSize.toFloat() / source.width, inputSize.toFloat() / source.height)
+        val scale = min(resolvedInputSize.toFloat() / source.width, resolvedInputSize.toFloat() / source.height)
         val scaledW = source.width * scale
         val scaledH = source.height * scale
-        val padX = (inputSize - scaledW) / 2f
-        val padY = (inputSize - scaledH) / 2f
+        val padX = (resolvedInputSize - scaledW) / 2f
+        val padY = (resolvedInputSize - scaledH) / 2f
         canvas.drawColor(Color.BLACK)
         canvas.drawBitmap(source, null, RectF(padX, padY, padX + scaledW, padY + scaledH), paint)
     }
 
     private fun fillInput() {
-        letterboxBitmap.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize)
+        letterboxBitmap.getPixels(pixels, 0, resolvedInputSize, 0, 0, resolvedInputSize, resolvedInputSize)
         inputBuffer.rewind()
         if (channelsFirst == true) {
             for (channel in 0..2) {
@@ -266,7 +296,7 @@ class YoloV8Detector(
         normalized: Boolean,
     ): Float {
         val raw = if (outputChannelsFirst) output[0][c][i] else output[0][i][c]
-        return if (normalized) raw * inputSize else raw
+        return if (normalized) raw * resolvedInputSize else raw
     }
 
     /**
@@ -340,17 +370,29 @@ class YoloV8Detector(
         interpreter?.close()
     }
 
+    /**
+     * Маппинг классов модели на дефекты приложения.
+     *
+     * Модель YOLOv8m «Road Anomaly» выдаёт 7 классов: Heavy-Vehicle,
+     * Light-Vehicle, Pedestrian, Crack, Crack-Severe, Pothole, Speed-Bump.
+     * Транспорт, пешеходы и лежачие полигоны — не дефекты покрытия, они
+     * отбрасываются (UNKNOWN). Трещины любой тяжести идут в один класс
+     * «сеть трещин»: различение по критичности делает SeverityScorer.
+     */
     private fun labelToType(label: String?): DefectType = when (label?.lowercase()?.trim()) {
-        "pothole", "яма" -> DefectType.POTHOLE
-        "crack_network", "crack", "трещина", "alligator", "longitudinal", "equal interval",
-        "transverse", "crack network" -> DefectType.CRACK_NETWORK
+        "pothole", "potholes", "яма" -> DefectType.POTHOLE
+        "crack", "crack-severe", "crack_severe", "crack network", "трещина",
+        "alligator", "longitudinal", "equal interval", "transverse" -> DefectType.CRACK_NETWORK
         "rutting", "колея" -> DefectType.RUTTING
         "patch", "заплатка" -> DefectType.PATCH
-        "manhole_cover", "manhole", "люк" -> DefectType.MANHOLE_COVER
+        "manhole_cover", "manhole", "sewage-manhole", "люк" -> DefectType.MANHOLE_COVER
         else -> DefectType.UNKNOWN
     }
 
     companion object {
+        /** Разрешение входа, если модель не сообщила своё. */
+        private const val DEFAULT_INPUT_SIZE = 640
+
         /**
          * Порог, после которого NNAPI считается непригодным и мы возвращаемся
          * на XNNPACK. Цель ТЗ — кадр < 45 мс; 80 мс — заведомо вне бюджета.
@@ -361,12 +403,13 @@ class YoloV8Detector(
         private const val CATASTROPHIC_INFERENCE_MS = 250.0
 
         private val DEFAULT_LABELS = listOf(
-            "longitudinal",
-            "equal interval",
-            "alligator",
-            "pothole",
-            "crosswalk blur",
-            "whiteline blur",
+            "Heavy-Vehicle",
+            "Light-Vehicle",
+            "Pedestrian",
+            "Crack",
+            "Crack-Severe",
+            "Pothole",
+            "Speed-Bump",
         )
     }
 }

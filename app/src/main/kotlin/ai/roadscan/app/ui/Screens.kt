@@ -204,6 +204,7 @@ fun RoadScanRoot(
                 onActivateLicense = viewModel::activateLicense,
                 onDeactivateLicense = viewModel::deactivateLicense,
                 onLoadDemo = viewModel::loadDemoReport,
+                onRunDiagnostics = viewModel::runDiagnostics,
                 padding = padding,
             )
         }

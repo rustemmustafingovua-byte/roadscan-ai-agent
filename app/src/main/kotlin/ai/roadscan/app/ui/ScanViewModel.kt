@@ -95,6 +95,8 @@ data class UiState(
     val batteryOfferPercent: Int = 0,
     /** Фоновый режим включён: vision выключен, пишется только путевой лог. */
     val backgroundMode: Boolean = false,
+    /** Результат проверки готовности комплекта. */
+    val diagnostics: List<ai.roadscan.app.diagnostics.DiagnosticCheck> = emptyList(),
 )
 
 class ScanViewModel(application: Application) : AndroidViewModel(application) {
@@ -337,6 +339,28 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     /** Отклонить предложение при низком заряде — смена продолжается как есть. */
     fun dismissBatteryOffer() {
         _state.update { it.copy(batteryOffer = false) }
+    }
+
+    /**
+     * Проверка готовности комплекта перед сменой: модель, камера, датчик,
+     * GNSS, место, заряд, лицензия. Всё офлайн.
+     */
+    fun runDiagnostics() {
+        val application = getApplication<Application>()
+        viewModelScope.launch {
+            val checks = withContext(Dispatchers.IO) {
+                ai.roadscan.app.diagnostics.Diagnostics.run(
+                    context = application,
+                    detector = detector,
+                    location = location,
+                    telemetry = telemetry,
+                    license = license,
+                    config = container.config,
+                    sessionCount = container.settings.sessionsTotal(),
+                )
+            }
+            _state.update { it.copy(diagnostics = checks) }
+        }
     }
 
     private fun startTicker() {
