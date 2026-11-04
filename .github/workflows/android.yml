@@ -14,7 +14,8 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
+      - name: Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
       - name: Unit tests (core)
         run: ./gradlew :core:test --no-daemon --console=plain
       - name: Assemble debug APK
