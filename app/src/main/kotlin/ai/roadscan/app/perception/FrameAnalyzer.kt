@@ -37,6 +37,11 @@ class FrameAnalyzer(
     private val speedProvider: () -> Float,
     /** Дефекты последнего кадра из детектора (для подписей на превью). */
     private val detectionsProvider: () -> List<VisionDetection> = { emptyList() },
+    /**
+     * Включён ли vision-контур. В фоновом режиме (низкий заряд) кадры
+     * отбрасываются до конвертации в Bitmap — это и есть экономия энергии.
+     */
+    private val visionEnabledProvider: () -> Boolean = { true },
     private val onFrame: (FrameMetrics) -> Unit = {},
 ) : ImageAnalysis.Analyzer {
 
@@ -48,6 +53,11 @@ class FrameAnalyzer(
         var original: Bitmap? = null
         var oriented: Bitmap? = null
         try {
+            if (!visionEnabledProvider()) {
+                // Фоновый режим: кадр не анализируется. finally всё равно
+                // закроет ImageProxy — камера не встанет.
+                return
+            }
             original = image.toBitmap()
             oriented = rotate(original, image.imageInfo.rotationDegrees)
             val contrast = meanContrast(oriented)
@@ -63,7 +73,11 @@ class FrameAnalyzer(
                 imageHeight = oriented.height,
                 speedKmh = speed,
                 meanContrast = contrast,
-                sensorTimestampMs = SystemClock.elapsedRealtime(),
+                // Метка момента съёмки, а не обработки: окно фузии ±50 мс должно
+                // совпадать с ударом в момент съёмки кадра, иначе при 90 км/ч
+                // удар смещается за пределы окна. CameraX отдаёт время в шкале
+                // elapsedRealtime — той же, что и SensorEvent.timestamp.
+                sensorTimestampMs = captureTimestampMs(image),
                 imageRef = oriented,
             )
             agentProvider().evaluateFrameAndSensor(frame)
@@ -92,6 +106,15 @@ class FrameAnalyzer(
 
     /** Сброс трекера на старте смены: номера дефектов начинаются с 001. */
     fun resetTracking() = tracker.reset()
+
+    /**
+     * Метка времени съёмки кадра в шкале elapsedRealtime, мс.
+     * Если производитель не отдал метку (0), берём текущее время.
+     */
+    private fun captureTimestampMs(image: ImageProxy): Long {
+        val nanos = runCatching { image.imageInfo.timestamp }.getOrDefault(0L)
+        return if (nanos > 0L) nanos / 1_000_000L else SystemClock.elapsedRealtime()
+    }
 
     private fun rotate(source: Bitmap, degrees: Int): Bitmap {
         if (degrees % 360 == 0) return source

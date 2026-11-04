@@ -23,7 +23,11 @@ data class SessionEntity(
     val confirmedCount: Int,
     val visualOnlyCount: Int,
     val totalAreaM2: Double,
-    val totalRub: Double,
+    /**
+     * Сумма сметы в валюте справочника цен (не обязательно рубли).
+     * Имя колонки в БД — историческое `totalRub`, чтобы не требовать миграции.
+     */
+    @ColumnInfo(name = "totalRub") val total: Double,
     val createdAtMs: Long,
     /** Реквизиты объекта/договора (JSON ReportMeta). */
     @ColumnInfo(defaultValue = "") val metaJson: String = "",

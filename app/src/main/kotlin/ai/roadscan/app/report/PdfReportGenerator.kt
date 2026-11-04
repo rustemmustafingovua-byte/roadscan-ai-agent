@@ -110,7 +110,7 @@ class PdfReportGenerator(private val strings: DocStrings = DocStrings.DEFAULT) {
             strings.areaLabel to "%.1f м²".format(report.estimate.totalAreaM2),
             strings.millingLabel to "%.2f м³".format(report.estimate.totalMillingVolumeM3),
             strings.asphaltLabel to "%.2f т".format(report.estimate.totalAsphaltTons),
-            strings.estimateLabel to "%.0f $currency".format(report.estimate.totalRub),
+            strings.estimateLabel to "%.0f $currency".format(report.estimate.total),
         )
         val cardWidth = 125f
         cards.forEachIndexed { index, (label, value) ->
@@ -160,8 +160,8 @@ class PdfReportGenerator(private val strings: DocStrings = DocStrings.DEFAULT) {
             writer.text(name, bodyPaint, columns[1] + 2f, y + 10f)
             writer.text(line.unit, bodyPaint, columns[2] + 2f, y + 10f)
             writer.text("%.2f".format(line.quantity), bodyPaint, columns[3] + 2f, y + 10f)
-            writer.text("%.2f".format(line.unitPriceRub), bodyPaint, columns[4] + 2f, y + 10f)
-            writer.text("%.2f".format(line.totalRub), bodyPaint, columns[5] + 2f, y + 10f)
+            writer.text("%.2f".format(line.unitPrice), bodyPaint, columns[4] + 2f, y + 10f)
+            writer.text("%.2f".format(line.total), bodyPaint, columns[5] + 2f, y + 10f)
             y += 16f
         }
 
@@ -175,10 +175,10 @@ class PdfReportGenerator(private val strings: DocStrings = DocStrings.DEFAULT) {
         }
         writer.text(
             vatText.format(
-                report.estimate.subtotalRub,
+                report.estimate.subtotal,
                 report.estimate.vatRate * 100,
-                report.estimate.vatRub,
-                report.estimate.totalRub,
+                report.estimate.vat,
+                report.estimate.total,
             ),
             accentPaint,
             40f,

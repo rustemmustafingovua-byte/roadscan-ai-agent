@@ -41,7 +41,7 @@ class DemoSessionTest {
         )
 
         assertTrue(report.clusters.isNotEmpty(), "нет подтверждённых кластеров")
-        assertTrue(report.estimate.totalRub > 0.0)
+        assertTrue(report.estimate.total > 0.0)
         assertTrue(report.estimate.totalAreaM2 > 0.0)
         assertTrue(report.estimate.totalMillingVolumeM3 > 0.0)
         // Кластеры не должны схлопываться в один: маршрут 4.8 км с разрывами.

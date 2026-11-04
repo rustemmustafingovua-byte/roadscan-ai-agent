@@ -78,22 +78,22 @@ object ReportXlsxBuilder {
                     line.name,
                     line.unit,
                     round(line.quantity, 3),
-                    round(line.unitPriceRub, 2),
-                    round(line.totalRub, 2),
+                    round(line.unitPrice, 2),
+                    round(line.total, 2),
                 ),
             )
         }
 
         rows.add(emptyList())
-        rows.add(listOf(null, null, null, null, s.subtotalLabel, round(report.estimate.subtotalRub, 2)))
+        rows.add(listOf(null, null, null, null, s.subtotalLabel, round(report.estimate.subtotal, 2)))
         rows.add(
             listOf(
                 null, null, null, null,
                 "${s.vatLabel} ${(report.estimate.vatRate * 100).roundToLong()}%",
-                round(report.estimate.vatRub, 2),
+                round(report.estimate.vat, 2),
             ),
         )
-        rows.add(listOf(null, null, null, null, s.totalLabel, round(report.estimate.totalRub, 2)))
+        rows.add(listOf(null, null, null, null, s.totalLabel, round(report.estimate.total, 2)))
         rows.add(emptyList())
         rows.add(listOf("${s.areaLabel}, м²", round(report.estimate.totalAreaM2, 2)))
         rows.add(listOf("${s.millingLabel}, м³", round(report.estimate.totalMillingVolumeM3, 3)))

@@ -11,6 +11,7 @@ import ai.roadscan.core.model.BoundingBox
 import ai.roadscan.core.model.DefectType
 import ai.roadscan.core.model.FrameData
 import ai.roadscan.core.model.VisionDetection
+import android.os.Build
 import org.tensorflow.lite.Interpreter
 import java.io.Closeable
 import java.nio.ByteBuffer
@@ -43,19 +44,86 @@ class YoloV8Detector(
     numThreads: Int = 4,
 ) : VisionDetector, Closeable {
 
-    private val interpreter: Interpreter? = runCatching {
+    /** Чем реально считает интерпретатор. */
+    enum class Backend { NNAPI, XNNPACK }
+
+    private val modelBytes: ByteBuffer? = runCatching {
         val bytes = context.assets.open(assetName).use { it.readBytes() }
-        val model = ByteBuffer.allocateDirect(bytes.size)
+        ByteBuffer.allocateDirect(bytes.size)
             .order(ByteOrder.nativeOrder())
             .apply { put(bytes); rewind() }
-        Interpreter(
-            model,
-            Interpreter.Options().apply {
-                setNumThreads(numThreads)
-                setUseXNNPACK(true)
-            },
-        )
     }.getOrNull()
+
+    private var interpreter: Interpreter? = null
+
+    /** Активен ли NNAPI-делегат (иначе считаем через XNNPACK). */
+    private var nnapiActive = false
+
+    /** Активный бэкенд инференса — для журнала и диагностики в UI. */
+    var backend: Backend = Backend.XNNPACK
+        private set
+
+    init {
+        interpreter = createInterpreter(preferNnapi = true)
+        backend = if (interpreter != null && nnapiActive) Backend.NNAPI else Backend.XNNPACK
+    }
+
+    /**
+     * NNAPI (аппаратное ускорение: DSP/GPU/NPU) заметно быстрее XNNPACK, но
+     * драйверы бывают капризными: часть устройств отдаёт NNAPI-софтверный
+     * fallback, который медленнее XNNPACK. Поэтому после нескольких кадров
+     * замеряем реальную скорость и при необходимости возвращаемся на XNNPACK.
+     */
+    private var inferencesWithBackend = 0
+    private var latencySumMs = 0.0
+
+    private fun createInterpreter(preferNnapi: Boolean): Interpreter? {
+        val model = modelBytes ?: return null
+        if (preferNnapi && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching {
+                Interpreter(
+                    model,
+                    Interpreter.Options().apply {
+                        setNumThreads(numThreads)
+                        setUseXNNPACK(true)
+                        setUseNNAPI(true)
+                    },
+                )
+            }.getOrNull()?.let {
+                nnapiActive = true
+                return it
+            }
+        }
+        nnapiActive = false
+        return runCatching {
+            Interpreter(
+                model,
+                Interpreter.Options().apply {
+                    setNumThreads(numThreads)
+                    setUseXNNPACK(true)
+                },
+            )
+        }.getOrNull()
+    }
+
+    /** Возврат к XNNPACK, если выбранный бэкенд не тянет кадровый бюджет. */
+    private fun considerDowngrade(elapsedMs: Double) {
+        if (!nnapiActive) return
+        inferencesWithBackend++
+        latencySumMs += elapsedMs
+        // Катастрофически медленный кадр — откатываемся сразу, не ждя выборки.
+        val average = latencySumMs / inferencesWithBackend
+        if (elapsedMs <= CATASTROPHIC_INFERENCE_MS && inferencesWithBackend < 10) return
+        if (average <= SLOW_INFERENCE_MS && elapsedMs <= CATASTROPHIC_INFERENCE_MS) return
+        runCatching { interpreter?.close() }
+        interpreter = createInterpreter(preferNnapi = false)
+        nnapiActive = false
+        backend = Backend.XNNPACK
+        inferencesWithBackend = 0
+        latencySumMs = 0.0
+        // Буфер выхода пересоздаём под новый интерпретатор.
+        output = null
+    }
 
     private val labels = runCatching {
         context.assets.open("labels.txt").bufferedReader().useLines { lines ->
@@ -141,6 +209,7 @@ class YoloV8Detector(
         }.getOrElse { emptyList() }.also {
             lastLatencyMs = (System.nanoTime() - startedNs) / 1_000_000.0
             lastDetections = it
+            considerDowngrade(lastLatencyMs)
         }
     }
 
@@ -282,6 +351,15 @@ class YoloV8Detector(
     }
 
     companion object {
+        /**
+         * Порог, после которого NNAPI считается непригодным и мы возвращаемся
+         * на XNNPACK. Цель ТЗ — кадр < 45 мс; 80 мс — заведомо вне бюджета.
+         */
+        private const val SLOW_INFERENCE_MS = 80.0
+
+        /** Один кадр дольше этого — точно не NNAPI-конфигурация, откатываемся. */
+        private const val CATASTROPHIC_INFERENCE_MS = 250.0
+
         private val DEFAULT_LABELS = listOf(
             "longitudinal",
             "equal interval",

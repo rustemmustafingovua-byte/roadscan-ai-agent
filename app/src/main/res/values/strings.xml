@@ -85,7 +85,7 @@
     <string name="settings_calibration_depth_base">База глибини, мм</string>
     <string name="settings_calibration_depth_per_g">мм на 1 g</string>
     <string name="settings_calibration_focal_title">Калькулятор фокуса за контрольним заміром</string>
-    <string name="settings_calibration_focal_hint">Відома ширина об\'єкта (колія 1.57 м), дистанція до нього та ширина в пікселях.</string>
+    <string name="settings_calibration_focal_hint">Відома ширина об\'єкта (колія 1,57 м), дистанція до нього та ширина в пікселях.</string>
     <string name="settings_calibration_width">Ширина, м</string>
     <string name="settings_calibration_distance">Дистанція, м</string>
     <string name="settings_calibration_pixels">Пікселі</string>
@@ -105,7 +105,7 @@
     <string name="settings_meta_weather">Погода</string>
     <string name="settings_meta_save">Зберегти реквізити</string>
     <string name="settings_demo">Демонстрація</string>
-    <string name="settings_demo_hint">Сформувати звіт за еталонною ділянкою 4.8 км: кластери, кошторис, PDF/Excel/GeoJSON. Зручно для показу замовнику та навчання операторів.</string>
+    <string name="settings_demo_hint">Сформувати звіт за еталонною ділянкою 4,8 км: кластери, кошторис, PDF/Excel/GeoJSON. Зручно для показу замовнику та навчання операторів.</string>
     <string name="settings_demo_action">Сформувати демо-звіт</string>
     <string name="settings_legal">Правова інформація</string>
     <string name="settings_legal_hint">Ліцензійна угода та політика конфіденційності — офлайн, на пристрої.</string>
@@ -131,6 +131,7 @@
     <string name="hud_quality_poor">КРИТИЧНЕ</string>
     <string name="hud_percent">%1$d%%</string>
     <string name="hud_battery">Батарея</string>
+    <string name="hud_backend">Обчислення</string>
     <string name="hud_temp">Нагрів</string>
     <string name="hud_gps">GPS</string>
     <string name="hud_fps">FPS</string>
@@ -164,6 +165,13 @@
     <string name="msg_demo_ready">Демо-звіт готовий: %1$d кластерів, %2$d %3$s</string>
     <string name="msg_finish_first">Спершу завершіть поточну зміну</string>
     <string name="msg_battery">Заряд батареї: %1$d%%</string>
+    <string name="msg_background_mode">Фоновий режим: аналіз відео вимкнено, путовий лог записується</string>
+    <string name="battery_low_title">Низький заряд батареї</string>
+    <string name="battery_low_message">Заряд %1$d%%. Перейти у фоновий режим із мінімальним енергоспоживанням або зберегти путовий лог і завершити зміну?</string>
+    <string name="battery_low_background">Фоновий режим</string>
+    <string name="battery_low_continue">Продовжити</string>
+    <string name="battery_low_finish">Зберегти й завершити</string>
+    <string name="hud_background_mode">ФОНОВИЙ РЕЖИМ — аналіз відео вимкнено</string>
     <string name="msg_thermal_throttle">Тротлінг: %1$d FPS (%2$d °C)</string>
     <string name="msg_thermal_recovered">Нагрів спав: %1$d FPS</string>
     <string name="share_chooser">Надіслати звіт</string>

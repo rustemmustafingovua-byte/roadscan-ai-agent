@@ -41,12 +41,13 @@ class SensorCollector(
         if (event.timestamp - lastTimestampNs < minIntervalNs) return
         lastTimestampNs = event.timestamp
         val values = event.values
+        // Android отдаёт м/с², ядро работает в g — нормализуем на границе.
         agentProvider().onSensorSample(
-            SensorSample(
+            SensorSample.fromMetersPerSecondSquared(
                 timestampMs = event.timestamp / 1_000_000L,
-                zGForce = values[2],
-                xGForce = values[0],
-                yGForce = values[1],
+                xMps2 = values[0],
+                yMps2 = values[1],
+                zMps2 = values[2],
             ),
         )
     }

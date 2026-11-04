@@ -109,9 +109,27 @@ class RoadScanAgent(
     private var peakTemp = Float.NaN
     private var latencySumMs = 0.0
     private var latencySamples = 0
-    private var lastLowBatteryPromptAt = Long.MIN_VALUE
     private var lastGpsPromptAt = Long.MIN_VALUE
     private var lowBatteryWarned = false
+    private var criticalBatteryWarned = false
+
+    /**
+     * Фоновый режим (ТЗ п. 3.2): при критичном заряде vision-контур
+     * выключается, телеметрия и путевой лог продолжают писаться.
+     */
+    @Volatile
+    var visionEnabled: Boolean = true
+        private set
+
+    /**
+     * Включает/выключает анализ видео. Выключение экономит энергию: кадры
+     * не конвертируются в Bitmap и нейросеть не запускается.
+     */
+    fun setVisionEnabled(enabled: Boolean) {
+        if (visionEnabled == enabled) return
+        visionEnabled = enabled
+        emit(AgentEvent.VisionModeChanged(enabled))
+    }
 
     val currentSessionId: String? get() = sessionId
     val acceptedDefects: List<DefectRecord>
@@ -165,7 +183,9 @@ class RoadScanAgent(
         duplicatesMerged = 0; lowConfidence = 0; noGeo = 0
         peakTemp = Float.NaN; latencySumMs = 0.0; latencySamples = 0
         lowBatteryWarned = false
+        criticalBatteryWarned = false
         lastGpsPromptAt = Long.MIN_VALUE
+        visionEnabled = true
 
         transition(AgentState.CALIBRATING)
 
@@ -175,10 +195,20 @@ class RoadScanAgent(
         if (!gpsOk) {
             push(AgentEvent.VoicePrompt(messages.gpsWarning, AgentEvent.VoicePrompt.Priority.HIGH))
         }
-        if (environment.batteryPercent <= config.batteryLowPercent) {
+        if (environment.batteryPercent <= config.batteryCriticalPercent) {
+            criticalBatteryWarned = true
+            lowBatteryWarned = true
+            push(AgentEvent.BatteryLow(environment.batteryPercent, critical = true))
+            push(
+                AgentEvent.VoicePrompt(
+                    messages.batteryCriticalWarning,
+                    AgentEvent.VoicePrompt.Priority.CRITICAL,
+                ),
+            )
+        } else if (environment.batteryPercent <= config.batteryLowPercent) {
+            lowBatteryWarned = true
             push(AgentEvent.BatteryLow(environment.batteryPercent))
             push(AgentEvent.VoicePrompt(messages.batteryWarning, AgentEvent.VoicePrompt.Priority.HIGH))
-            lowBatteryWarned = true
         }
 
         if (gpsOk) {
@@ -282,9 +312,18 @@ class RoadScanAgent(
             }
         }
 
-        if (telemetry.batteryPercent <= config.batteryLowPercent && !lowBatteryWarned) {
+        if (telemetry.batteryPercent <= config.batteryCriticalPercent && !criticalBatteryWarned) {
+            criticalBatteryWarned = true
             lowBatteryWarned = true
-            lastLowBatteryPromptAt = clock.nowMs()
+            emit(AgentEvent.BatteryLow(telemetry.batteryPercent, critical = true))
+            emit(
+                AgentEvent.VoicePrompt(
+                    messages.batteryCriticalWarning,
+                    AgentEvent.VoicePrompt.Priority.CRITICAL,
+                ),
+            )
+        } else if (telemetry.batteryPercent <= config.batteryLowPercent && !lowBatteryWarned) {
+            lowBatteryWarned = true
             emit(AgentEvent.BatteryLow(telemetry.batteryPercent))
             emit(
                 AgentEvent.VoicePrompt(
@@ -328,6 +367,9 @@ class RoadScanAgent(
 
         framesSeen++
         lensMonitor.onFrame(frame.meanContrast)
+
+        // Фоновый режим: видео не анализируем, телеметрия и путевой лог идут.
+        if (!visionEnabled) return null
 
         if (!governor.shouldAnalyzeNextFrame()) {
             framesSkipped++

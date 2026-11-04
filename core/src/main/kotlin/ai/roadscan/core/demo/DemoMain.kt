@@ -117,7 +117,7 @@ object DemoMain {
         println("Площа: %.2f м²".format(report.estimate.totalAreaM2))
         println("Фрезерування: %.3f м³".format(report.estimate.totalMillingVolumeM3))
         println("Асфальтобетон: %.3f т".format(report.estimate.totalAsphaltTons))
-        println("Кошторис: %.0f $currency".format(report.estimate.totalRub))
+        println("Кошторис: %.0f $currency".format(report.estimate.total))
         println("Средняя задержка кадра: %.2f мс".format(report.stats.averageLatencyMs))
         println("XLSX: ${xlsx.absolutePath}")
         println("GeoJSON: ${geojson.absolutePath}")

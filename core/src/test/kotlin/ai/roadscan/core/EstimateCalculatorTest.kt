@@ -63,10 +63,10 @@ class EstimateCalculatorTest {
     @Test
     fun `vat and total are consistent`() {
         val estimate = calculator.calculate(listOf(cluster()))
-        val subtotal = estimate.lines.sumOf { it.totalRub }
-        assertEquals(subtotal, estimate.subtotalRub, 1e-6)
-        assertEquals(subtotal * 0.2, estimate.vatRub, 1e-6)
-        assertEquals(subtotal * 1.2, estimate.totalRub, 1e-6)
+        val subtotal = estimate.lines.sumOf { it.total }
+        assertEquals(subtotal, estimate.subtotal, 1e-6)
+        assertEquals(subtotal * 0.2, estimate.vat, 1e-6)
+        assertEquals(subtotal * 1.2, estimate.total, 1e-6)
     }
 
     @Test
@@ -80,11 +80,11 @@ class EstimateCalculatorTest {
     fun `price catalog is overridable`() {
         val catalog = PriceCatalog.DEFAULT.copy(
             items = PriceCatalog.DEFAULT.items.map {
-                if (it.code == "ASPHALT") it.copy(priceRub = 12_000.0) else it
+                if (it.code == "ASPHALT") it.copy(price = 12_000.0) else it
             },
         )
         val estimate = EstimateCalculator(catalog = catalog).calculate(listOf(cluster()))
-        assertEquals(12_000.0, estimate.lines.first { it.code == "ASPHALT" }.unitPriceRub, 1e-9)
+        assertEquals(12_000.0, estimate.lines.first { it.code == "ASPHALT" }.unitPrice, 1e-9)
     }
 
     @Test

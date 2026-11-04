@@ -61,6 +61,8 @@ data class UiState(
     val report: SessionReport? = null,
     val sessions: List<SessionEntity> = emptyList(),
     val modelReady: Boolean = false,
+    /** Активный бэкенд инференса: NNAPI или XNNPACK. */
+    val inferenceBackend: String = "XNNPACK",
     val busy: Boolean = false,
     val message: String? = null,
     val calibration: CalibrationProfile = CalibrationProfile.DEFAULT,
@@ -84,6 +86,15 @@ data class UiState(
     /** Счётчик дефектов по типам для панели HUD. */
     val breakdown: List<Pair<DefectType, Int>> = emptyList(),
     val currencySymbol: String = "₴",
+    /**
+     * Агент предлагает выбрать режим при низком заряде (ТЗ п. 3.2):
+     * фоновый режим с минимальным энергопотреблением либо завершение смены.
+     */
+    val batteryOffer: Boolean = false,
+    /** Заряд, на котором предложение было выдвинуто, % — для текста диалога. */
+    val batteryOfferPercent: Int = 0,
+    /** Фоновый режим включён: vision выключен, пишется только путевой лог. */
+    val backgroundMode: Boolean = false,
 )
 
 class ScanViewModel(application: Application) : AndroidViewModel(application) {
@@ -120,6 +131,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         locationProvider = { location.latest },
         speedProvider = { location.speedKmh },
         detectionsProvider = { detector.lastDetections },
+        visionEnabledProvider = { agent.visionEnabled },
         onFrame = { metrics ->
             val now = System.currentTimeMillis()
             // 30 обновлений/с перерисовывать HUD незачем: 8–10 достаточно.
@@ -263,11 +275,13 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 confirmed = report.stats.confirmed,
                 visualOnly = report.stats.visualOnly,
                 overlay = emptyList(),
+                backgroundMode = false,
+                batteryOffer = false,
                 events = (listOf(
                     str(
                         R.string.msg_session_done,
                         report.clusters.size,
-                        report.estimate.totalRub.toLong(),
+                        report.estimate.total.toLong(),
                         docStrings.currencySymbol(report.estimate.currency),
                     ),
                 ) + it.events).take(8),
@@ -277,6 +291,34 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching { repository.save(report) }
         }
+    }
+
+    /**
+     * Фоновый режим (ТЗ п. 3.2): анализ видео выключается, камера не грузит
+     * процессор, телеметрия и путевой лог продолжают писаться. Смена не
+     * прерывается — оператор может вернуть обычный режим.
+     */
+    fun enterBackgroundMode() {
+        if (!_state.value.running) return
+        agent.setVisionEnabled(false)
+        _state.update {
+            it.copy(backgroundMode = true, batteryOffer = false)
+        }
+        speak(str(R.string.msg_background_mode), force = true)
+    }
+
+    /** Вернуть обычный режим анализа видео. */
+    fun exitBackgroundMode() {
+        if (!_state.value.running) return
+        agent.setVisionEnabled(true)
+        _state.update {
+            it.copy(backgroundMode = false)
+        }
+    }
+
+    /** Отклонить предложение при низком заряде — смена продолжается как есть. */
+    fun dismissBatteryOffer() {
+        _state.update { it.copy(batteryOffer = false) }
     }
 
     private fun startTicker() {
@@ -313,6 +355,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         speedKmh = if (snapshot.speedKmh > 0f) snapshot.speedKmh else it.speedKmh,
                         batteryPercent = snapshot.batteryPercent,
                         cpuTempC = snapshot.cpuTempC,
+                        inferenceBackend = detector.backend.name,
                         gpsAccuracyM = location.accuracyM,
                         freeDiskMb = snapshot.freeDiskMb,
                         frames = agent.statsSnapshot().framesAnalyzed,
@@ -332,6 +375,19 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun onAgentEvent(event: AgentEvent) {
+        when (event) {
+            // ТЗ п. 3.2: при низком заряде агент предлагает выбрать режим —
+            // фоновый с минимальным энергопотреблением или завершение смены.
+            is AgentEvent.BatteryLow -> _state.update {
+                it.copy(batteryOffer = true, batteryOfferPercent = event.percent)
+            }
+
+            is AgentEvent.VisionModeChanged -> _state.update {
+                it.copy(backgroundMode = !event.enabled)
+            }
+
+            else -> Unit
+        }
         val (text, speak) = when (event) {
             is AgentEvent.VoicePrompt -> event.message to true
             is AgentEvent.LensDirty -> messages.lensWarning to true
@@ -429,6 +485,10 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 runCatching {
                     val chooser = Intent.createChooser(intent, str(R.string.share_chooser)).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        // Грант на чтение файла передаём и листу выбора: иначе
+                        // выбранное приложение не сможет прочитать документ.
+                        clipData = intent.clipData
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                     getApplication<Application>().startActivity(chooser)
                 }
@@ -492,7 +552,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 message = str(
                     R.string.msg_demo_ready,
                     report.clusters.size,
-                    report.estimate.totalRub.toLong(),
+                    report.estimate.total.toLong(),
                     docStrings.currencySymbol(report.estimate.currency),
                 ),
             )
@@ -512,10 +572,11 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Не спамим: обычные подсказки — не чаще раза в 6 секунд, критические — сразу. */
-    private fun speak(text: String) {
+    private fun speak(text: String, force: Boolean = false) {
         if (!ttsReady) return
         val now = System.currentTimeMillis()
-        val critical = text.contains("Протріть", ignoreCase = true) ||
+        val critical = force ||
+            text.contains("Протріть", ignoreCase = true) ||
             text.contains("Протрите", ignoreCase = true) ||
             text.contains("заряд", ignoreCase = true) ||
             text.contains("Заряд", ignoreCase = true)

@@ -125,6 +125,7 @@
     <string name="hud_quality_poor">КРИТИЧНО</string>
     <string name="hud_percent">%1$d%%</string>
     <string name="hud_battery">Батарея</string>
+    <string name="hud_backend">Вычисления</string>
     <string name="hud_temp">Нагрев</string>
     <string name="hud_gps">GPS</string>
     <string name="hud_fps">FPS</string>
@@ -155,6 +156,13 @@
     <string name="msg_demo_ready">Демо-отчёт готов: %1$d кластеров, %2$d %3$s</string>
     <string name="msg_finish_first">Сначала завершите текущую смену</string>
     <string name="msg_battery">Заряд батареи: %1$d%%</string>
+    <string name="msg_background_mode">Фоновый режим: анализ видео отключён, путевой лог записывается</string>
+    <string name="battery_low_title">Низкий заряд батареи</string>
+    <string name="battery_low_message">Заряд %1$d%%. Перейти в фоновый режим с минимальным энергопотреблением или сохранить путевой лог и завершить смену?</string>
+    <string name="battery_low_background">Фоновый режим</string>
+    <string name="battery_low_continue">Продолжить</string>
+    <string name="battery_low_finish">Сохранить и завершить</string>
+    <string name="hud_background_mode">ФОНОВЫЙ РЕЖИМ — анализ видео отключён</string>
     <string name="msg_thermal_throttle">Троттлинг: %1$d FPS (%2$d °C)</string>
     <string name="msg_thermal_recovered">Нагрев спал: %1$d FPS</string>
     <string name="share_chooser">Отправить отчёт</string>

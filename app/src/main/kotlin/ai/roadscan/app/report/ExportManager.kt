@@ -1,5 +1,6 @@
 package ai.roadscan.app.report
 
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
@@ -41,6 +42,10 @@ class ExportManager(
         return Intent(Intent.ACTION_SEND).apply {
             type = format.mime
             putExtra(Intent.EXTRA_STREAM, uri)
+            // ClipData обязателен: без него системный лист выбора (отдельный
+            // процесс) не получает URI-грант и получатель файла получает
+            // Permission Denial вместо документа.
+            clipData = ClipData.newUri(context.contentResolver, file.name, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
     }

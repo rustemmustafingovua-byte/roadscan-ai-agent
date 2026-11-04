@@ -182,6 +182,54 @@ class RoadScanAgentTest {
     }
 
     @Test
+    fun `critical battery is reported separately`() {
+        val agent = agent()
+        agent.startSession(env(battery = 80))
+        agent.onVehicleTelemetry(VehicleTelemetry(timestampMs = 1, cpuTempC = 35f, batteryPercent = 8))
+
+        val low = events.filterIsInstance<AgentEvent.BatteryLow>().last()
+        assertEquals(8, low.percent)
+        assertTrue(low.critical, "Критический заряд должен отличаться от обычного")
+        assertTrue(
+            events.filterIsInstance<AgentEvent.VoicePrompt>()
+                .any { it.message == CoreMessages.DEFAULT.batteryCriticalWarning },
+        )
+    }
+
+    @Test
+    fun `background mode stops vision analysis but keeps the session`() {
+        val agent = agent()
+        agent.startSession(env())
+        agent.setVisionEnabled(false)
+
+        assertFalse(agent.visionEnabled)
+        assertTrue(events.any { it is AgentEvent.VisionModeChanged && !it.enabled })
+
+        val record = agent.evaluateFrameAndSensor(
+            Fixtures.frame(),
+            SensorPeak(1_000_000L, 0.9f),
+        )
+        assertNull(record, "В фоновом режиме видео не анализируется")
+        assertTrue(agent.acceptedDefects.isEmpty())
+        assertEquals(AgentState.SCANNING, agent.state)
+    }
+
+    @Test
+    fun `vision can be restored from background mode`() {
+        val agent = agent()
+        agent.startSession(env())
+        agent.setVisionEnabled(false)
+        agent.setVisionEnabled(true)
+
+        val record = agent.evaluateFrameAndSensor(
+            Fixtures.frame(),
+            SensorPeak(1_000_000L, 0.9f),
+        )
+        assertNotNull(record)
+        assertTrue(record.confirmed)
+    }
+
+    @Test
     fun `ten dirty frames trigger lens warning`() {
         val agent = agent()
         agent.startSession(env())
@@ -235,7 +283,7 @@ class RoadScanAgentTest {
         assertEquals(1, report.clusters.size)
         assertTrue(report.clusters.single().confirmed)
         assertTrue(report.estimate.totalMillingVolumeM3 > 0)
-        assertTrue(report.estimate.totalRub > 0)
+        assertTrue(report.estimate.total > 0)
 
         agent.postProcessingDone()
         assertEquals(AgentState.IDLE, agent.state)

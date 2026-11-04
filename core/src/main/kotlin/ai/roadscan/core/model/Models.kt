@@ -84,23 +84,83 @@ data class FrameData(
     val detections: List<VisionDetection> = emptyList(),
 )
 
-/** Один отсчёт акселерометра. zGForce — модуль ускорения в g (покой ≈ 1.0). */
+/**
+ * Один отсчёт акселерометра в шкале g.
+ *
+ * Внимание: Android `TYPE_ACCELEROMETER` отдаёт м/с², а не g. Отсчёты,
+ * приходящие из сенсорного контура, обязаны быть нормализованы через
+ * [SensorSample.fromMetersPerSecondSquared] — иначе «покой» даёт 9.8 вместо
+ * 1.0, [deltaG] всегда ≈ 8.8, и фузия подтверждает любой визуальный кандидат
+ * как твёрдый удар.
+ */
 data class SensorSample(
     val timestampMs: Long,
     val zGForce: Float,
     val xGForce: Float = 0f,
     val yGForce: Float = 0f,
 ) {
-    val deltaG: Float get() = kotlin.math.abs(zGForce - 1f)
+    /**
+     * Модуль ускорения, g. В покое ≈ 1.0 при любой ориентации телефона.
+     */
+    val magnitudeG: Float
+        get() = kotlin.math.sqrt(
+            xGForce * xGForce + yGForce * yGForce + zGForce * zGForce,
+        )
+
+    /**
+     * Отклонение модуля ускорения от 1 g — величина удара.
+     *
+     * Считается по модулю, а не по одной оси Z: крепление телефона на лобовом
+     * стекле не совпадает с осью Z, и «Δa_z» в такой установке не отражает
+     * удар. Модуль, наоборот, инвариантен к ориентации:
+     *
+     *  - удар колеса о яму направлен вдоль силы тяжести -> модуль растёт,
+     *    отклонение ≈ величине удара;
+     *  - торможение и поворот направлены поперёк тяжести -> модуль почти не
+     *    меняется (0.4 g вбок даёт всего ~0.08 g отклонения), поэтому
+     *    модуль сам по себе отсекает ложные срабатывания на переходах.
+     */
+    val deltaG: Float get() = kotlin.math.abs(magnitudeG - 1f)
+
+    companion object {
+        /**
+         * Стандартное ускорение свободного падения, м/с².
+         * Совпадает с `android.hardware.SensorManager.GRAVITY_EARTH`, но живёт
+         * в ядре, чтобы не тянуть Android-зависимости и покрыть тестами.
+         */
+        const val STANDARD_GRAVITY_MPS2 = 9.80665f
+
+        /**
+         * Перевод отсчёта Android-акселерометра (м/с²) в шкалу ядра (g).
+         *
+         * @param timestampMs отметка времени в шкале elapsedRealtime, мс
+         * @param xMps2 ускорение по X, м/с² (покой ≈ 0)
+         * @param yMps2 ускорение по Y, м/с² (покой ≈ 0)
+         * @param zMps2 ускорение по Z, м/с² (покой ≈ 9.81)
+         */
+        fun fromMetersPerSecondSquared(
+            timestampMs: Long,
+            xMps2: Float,
+            yMps2: Float,
+            zMps2: Float,
+        ): SensorSample = SensorSample(
+            timestampMs = timestampMs,
+            xGForce = xMps2 / STANDARD_GRAVITY_MPS2,
+            yGForce = yMps2 / STANDARD_GRAVITY_MPS2,
+            zGForce = zMps2 / STANDARD_GRAVITY_MPS2,
+        )
+    }
 }
 
 /** Пик удара подвески в окне поиска. */
 data class SensorPeak(
     val timestampMs: Long,
+    /** Отклонение модуля ускорения от 1 g — величина удара. */
     val deltaG: Float,
     val durationMs: Long = 0L,
 ) {
-    val zGForce: Float get() = deltaG + 1f
+    /** Модуль ускорения в момент пика, g. */
+    val magnitudeG: Float get() = deltaG + 1f
 }
 
 /** Снимок условий на старте смены. */
@@ -163,9 +223,12 @@ sealed interface AgentEvent {
 
     data class ThermalRecovered(val cpuTempC: Float, val targetFps: Int) : AgentEvent
 
-    data class BatteryLow(val percent: Int) : AgentEvent
+    data class BatteryLow(val percent: Int, val critical: Boolean = false) : AgentEvent
 
     data class DefectAccepted(val record: DefectRecord) : AgentEvent
+
+    /** Vision-контур включён/выключен (фоновый режим при низком заряде). */
+    data class VisionModeChanged(val enabled: Boolean) : AgentEvent
 
     data class Error(val message: String) : AgentEvent
 }

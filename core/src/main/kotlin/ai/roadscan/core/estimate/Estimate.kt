@@ -11,7 +11,8 @@ data class PriceItem(
     val code: String,
     val name: String,
     val unit: String,
-    val priceRub: Double,
+    /** Цена в валюте каталога ([PriceCatalog.currency]); не обязательно рубли. */
+    val price: Double,
 )
 
 @Serializable
@@ -22,7 +23,7 @@ data class PriceCatalog(
     val items: List<PriceItem> = emptyList(),
 ) {
     fun priceOf(code: String): Double =
-        items.firstOrNull { it.code == code }?.priceRub ?: error("No price for code $code")
+        items.firstOrNull { it.code == code }?.price ?: error("No price for code $code")
 
     fun item(code: String): PriceItem =
         items.firstOrNull { it.code == code } ?: error("No price for code $code")
@@ -83,24 +84,27 @@ data class EstimateLine(
     val name: String,
     val unit: String,
     val quantity: Double,
-    val unitPriceRub: Double,
+    /** Цена за единицу в валюте сметы. */
+    val unitPrice: Double,
 ) {
-    val totalRub: Double get() = quantity * unitPriceRub
+    val total: Double get() = quantity * unitPrice
 }
 
 data class Estimate(
     val currency: String,
     val lines: List<EstimateLine>,
-    val subtotalRub: Double,
+    val subtotal: Double,
     val vatRate: Double,
-    val vatRub: Double,
-    val totalRub: Double,
+    val vat: Double,
+    val total: Double,
     val totalAreaM2: Double,
     val totalMillingVolumeM3: Double,
     val totalAsphaltTons: Double,
 ) {
     companion object {
-        val EMPTY = Estimate("RUB", emptyList(), 0.0, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0)
+        /** Пустая смета в валюте справочника цен. */
+        fun empty(currency: String, vatRate: Double = 0.20): Estimate =
+            Estimate(currency, emptyList(), 0.0, vatRate, 0.0, 0.0, 0.0, 0.0, 0.0)
     }
 }
 
@@ -117,7 +121,7 @@ class EstimateCalculator(
 ) {
     fun calculate(clusters: List<DefectCluster>): Estimate {
         val confirmed = clusters.filter { it.confirmed }
-        if (confirmed.isEmpty()) return Estimate.EMPTY
+        if (confirmed.isEmpty()) return Estimate.empty(catalog.currency, catalog.vatRate)
 
         var area = 0.0
         var volume = 0.0
@@ -150,15 +154,15 @@ class EstimateCalculator(
         lines += line("MOBILIZATION", 1.0)
         lines += line("TRAFFIC", 1.0)
 
-        val subtotal = lines.sumOf { it.totalRub }
+        val subtotal = lines.sumOf { it.total }
         val vat = subtotal * catalog.vatRate
         return Estimate(
             currency = catalog.currency,
             lines = lines,
-            subtotalRub = subtotal,
+            subtotal = subtotal,
             vatRate = catalog.vatRate,
-            vatRub = vat,
-            totalRub = subtotal + vat,
+            vat = vat,
+            total = subtotal + vat,
             totalAreaM2 = area,
             totalMillingVolumeM3 = volume,
             totalAsphaltTons = tons,
@@ -167,6 +171,6 @@ class EstimateCalculator(
 
     private fun line(code: String, quantity: Double): EstimateLine {
         val item = catalog.item(code)
-        return EstimateLine(item.code, item.name, item.unit, quantity, item.priceRub)
+        return EstimateLine(item.code, item.name, item.unit, quantity, item.price)
     }
 }

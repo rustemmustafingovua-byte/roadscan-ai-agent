@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -49,6 +51,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -169,6 +172,9 @@ fun RoadScanRoot(
                 analyzer = viewModel.analyzer,
                 onStart = viewModel::startSession,
                 onStop = viewModel::stopSession,
+                onBackgroundMode = viewModel::enterBackgroundMode,
+                onExitBackgroundMode = viewModel::exitBackgroundMode,
+                onDismissBatteryOffer = viewModel::dismissBatteryOffer,
                 padding = padding,
             )
 
@@ -212,6 +218,9 @@ private fun ScanScreen(
     analyzer: ImageAnalysis.Analyzer,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onBackgroundMode: () -> Unit,
+    onExitBackgroundMode: () -> Unit,
+    onDismissBatteryOffer: () -> Unit,
     padding: PaddingValues,
 ) {
     val nowMs = rememberClockMs()
@@ -242,9 +251,63 @@ private fun ScanScreen(
                 )
                 Spacer(Modifier.weight(1f))
             }
-            HudFooter(state = state, onStart = onStart, onStop = onStop)
+            HudFooter(
+                state = state,
+                onStart = onStart,
+                onStop = onStop,
+                onExitBackgroundMode = onExitBackgroundMode,
+            )
+        }
+
+        // ТЗ п. 3.2: при низком заряде агент предлагает выбор режима.
+        if (state.batteryOffer) {
+            BatteryOfferDialog(
+                percent = state.batteryOfferPercent,
+                onBackgroundMode = onBackgroundMode,
+                onFinish = onStop,
+                onDismiss = onDismissBatteryOffer,
+            )
         }
     }
+}
+
+/**
+ * Предложение при низком заряде: фоновый режим с минимальным
+ * энергопотреблением либо сохранение путевого лога и завершение смены.
+ */
+@Composable
+private fun BatteryOfferDialog(
+    percent: Int,
+    onBackgroundMode: () -> Unit,
+    onFinish: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.battery_low_title)) },
+        text = { Text(stringResource(R.string.battery_low_message, percent)) },
+        confirmButton = {
+            Button(
+                onClick = onBackgroundMode,
+                colors = ButtonDefaults.buttonColors(containerColor = Accent),
+            ) {
+                Text(stringResource(R.string.battery_low_background))
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.battery_low_continue))
+                }
+                TextButton(onClick = onFinish) {
+                    Text(
+                        stringResource(R.string.battery_low_finish),
+                        color = Bad,
+                    )
+                }
+            }
+        },
+    )
 }
 
 @Composable
@@ -508,6 +571,11 @@ private fun HudSidePanel(state: UiState, modifier: Modifier) {
                 "${state.targetFps}",
             )
             StatusRow(
+                stringResource(R.string.hud_backend),
+                state.inferenceBackend,
+                if (state.inferenceBackend == "NNAPI") Good else null,
+            )
+            StatusRow(
                 stringResource(R.string.hud_latency),
                 if (state.latencyMs <= 0.0) "—"
                 else stringResource(R.string.hud_latency_value, state.latencyMs),
@@ -683,7 +751,12 @@ private fun DetectionOverlay(state: UiState) {
 }
 
 @Composable
-private fun HudFooter(state: UiState, onStart: () -> Unit, onStop: () -> Unit) {
+private fun HudFooter(
+    state: UiState,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+    onExitBackgroundMode: () -> Unit,
+) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -694,6 +767,17 @@ private fun HudFooter(state: UiState, onStart: () -> Unit, onStop: () -> Unit) {
             )
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
+        if (state.backgroundMode) {
+            AssistChip(
+                onClick = onExitBackgroundMode,
+                label = { Text(stringResource(R.string.hud_background_mode)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    labelColor = Warn,
+                    containerColor = Warn.copy(alpha = 0.12f),
+                ),
+            )
+            Spacer(Modifier.height(6.dp))
+        }
         if (state.events.isNotEmpty()) {
             Text(
                 "▸ ${state.events.first()}",
@@ -911,7 +995,7 @@ private fun SummaryCards(report: SessionReport, currency: String) {
             )
             Kpi(
                 stringResource(R.string.report_kpi_estimate),
-                stringResource(R.string.report_money_value, report.estimate.totalRub, currency),
+                stringResource(R.string.report_money_value, report.estimate.total, currency),
                 Modifier.weight(1f),
             )
         }
@@ -985,7 +1069,7 @@ private fun EstimateCard(report: SessionReport, currency: String) {
                                 R.string.report_line_detail,
                                 line.quantity,
                                 line.unit,
-                                line.unitPriceRub,
+                                line.unitPrice,
                                 currency,
                             ),
                             fontSize = 10.sp,
@@ -993,7 +1077,7 @@ private fun EstimateCard(report: SessionReport, currency: String) {
                         )
                     }
                     Text(
-                        stringResource(R.string.report_money_value, line.totalRub, currency),
+                        stringResource(R.string.report_money_value, line.total, currency),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -1001,7 +1085,7 @@ private fun EstimateCard(report: SessionReport, currency: String) {
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                stringResource(R.string.report_total_with_vat, report.estimate.totalRub, currency),
+                stringResource(R.string.report_total_with_vat, report.estimate.total, currency),
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
             )
@@ -1144,7 +1228,7 @@ private fun SessionRow(session: SessionEntity, currency: String, onClick: () -> 
                 )
             }
             Text(
-                stringResource(R.string.report_money_value, session.totalRub, currency),
+                stringResource(R.string.report_money_value, session.total, currency),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
             )

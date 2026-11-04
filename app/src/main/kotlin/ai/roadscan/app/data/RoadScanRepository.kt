@@ -21,7 +21,7 @@ class RoadScanRepository(private val dao: RoadScanDao) {
             confirmedCount = report.stats.confirmed,
             visualOnlyCount = report.stats.visualOnly,
             totalAreaM2 = report.estimate.totalAreaM2,
-            totalRub = report.estimate.totalRub,
+            total = report.estimate.total,
             createdAtMs = createdAtMs,
             metaJson = ai.roadscan.core.report.ReportMeta.toJson(report.meta),
             calibrationJson = report.calibration?.let { ai.roadscan.core.calibration.CalibrationProfile.toJson(it) }

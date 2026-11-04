@@ -26,6 +26,7 @@ interface CoreMessages {
     // --- подсказки оператору ---
     val gpsWarning: String
     val batteryWarning: String
+    val batteryCriticalWarning: String
     val lensWarning: String
     fun noDiskSpace(freeMb: Long): String
     fun batteryOverheated(tempC: Int): String
@@ -75,7 +76,10 @@ interface CoreMessages {
         override val gpsWarning =
             "Увага, низька точність GPS. Рекомендується підключити зовнішній RTK-модуль."
         override val batteryWarning =
-            "Заряд батареї нижче 20%. Рекомендується зберегти путовий лог і завершити зміну."
+            "Заряд батареї нижче 20%. Перейдіть у фоновий режим або збережіть " +
+                "путовий лог і завершіть зміну."
+        override val batteryCriticalWarning =
+            "Критичний заряд батареї. Збережіть путовий лог і завершіть зміну."
 
         override val lensWarning = "Об'єктив забруднений. Протріть камеру."
 
@@ -135,7 +139,10 @@ interface CoreMessages {
         override val gpsWarning =
             "Внимание, низкая точность GPS. Рекомендуется подключить внешний RTK-модуль."
         override val batteryWarning =
-            "Заряд батареи ниже 20%. Рекомендуется сохранить путевой лог и завершить смену."
+            "Заряд батареи ниже 20%. Перейдите в фоновый режим либо сохраните " +
+                "путевой лог и завершите смену."
+        override val batteryCriticalWarning =
+            "Критический заряд батареи. Сохраните путевой лог и завершите смену."
 
         override val lensWarning = "Объектив загрязнен. Протрите камеру."
 

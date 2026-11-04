@@ -1,6 +1,7 @@
 package ai.roadscan.app.ui
 
 import android.app.Application
+import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
@@ -258,10 +259,15 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "video/mp4"
             putExtra(Intent.EXTRA_STREAM, uri)
+            // ClipData обязателен: без него лист выбора не передаёт URI-грант
+            // и выбранное приложение получает Permission Denial.
+            clipData = ClipData.newUri(application.contentResolver, file.name, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         val chooser = Intent.createChooser(intent, str(R.string.video_share_chooser)).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            clipData = intent.clipData
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         runCatching { application.startActivity(chooser) }
     }
