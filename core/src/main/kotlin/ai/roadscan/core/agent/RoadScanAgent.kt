@@ -141,6 +141,9 @@ class RoadScanAgent(
     }
 
     val currentSessionId: String? get() = sessionId
+
+    /** Момент старта текущей смены, мс (для записи в базу сразу после старта). */
+    val sessionStartedAtMs: Long get() = startedAtMs
     val acceptedDefects: List<DefectRecord>
         @Synchronized get() = accepted.toList()
     val lastGovernorDecision get() = governor.decision

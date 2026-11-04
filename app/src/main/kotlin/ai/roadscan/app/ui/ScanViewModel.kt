@@ -253,7 +253,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 runCatching {
                     repository.beginSession(
                         sessionId = sessionId,
-                        startedAtMs = System.currentTimeMillis(),
+                        startedAtMs = agent.sessionStartedAtMs,
                         metaJson = ReportMeta.toJson(meta),
                         calibrationJson = ai.roadscan.core.calibration.CalibrationProfile.toJson(calibration),
                     )
