@@ -224,6 +224,14 @@ object ReportXlsxBuilder {
     private fun metricsSheet(report: SessionReport, s: DocStrings): XlsxWriter.Sheet {
         val st = report.stats
         val uk = s.locale == "uk"
+        // Валидация оператора — прямое измерение точности модели в поле.
+        val operatorConfirmed = report.defects.count {
+            it.review == ai.roadscan.core.model.ReviewDecision.CONFIRMED
+        }
+        val operatorRejected = report.defects.count {
+            it.review == ai.roadscan.core.model.ReviewDecision.REJECTED
+        }
+        val reviewedTotal = operatorConfirmed + operatorRejected
         fun t(ukText: String, ruText: String) = if (uk) ukText else ruText
         val rows = mutableListOf<List<Any?>>(
             listOf(s.metricsTitle),
@@ -244,6 +252,18 @@ object ReportXlsxBuilder {
             ),
             listOf(t("Кластерів підтверджено", "Кластеров подтверждено"), report.clusters.size),
             listOf(t("Кластерів лише візуально", "Кластеров visual-only"), report.visualOnlyClusters.size),
+            emptyList(),
+            listOf(t("ВАЛІДАЦІЯ ОПЕРАТОРА", "ВАЛИДАЦИЯ ОПЕРАТОРА")),
+            listOf(t("Підтверджено вручну", "Подтверждено вручную"), operatorConfirmed),
+            listOf(t("Відхилено (хибні)", "Отклонено (ложные)"), operatorRejected),
+            listOf(
+                t("Хибність за виміром оператора", "Ложность по замеру оператора"),
+                if (reviewedTotal > 0) {
+                    "${(operatorRejected * 100.0 / reviewedTotal).roundToLong()} %"
+                } else {
+                    "н/д"
+                },
+            ),
         )
         return XlsxWriter.Sheet(
             name = s.sheetMetrics,

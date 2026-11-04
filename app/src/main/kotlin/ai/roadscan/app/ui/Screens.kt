@@ -1129,6 +1129,21 @@ private fun StatsCard(report: SessionReport) {
                 stringResource(R.string.report_metric_dupes),
                 "${stats.duplicatesMerged}",
             )
+            // Валидация оператора — прямое измерение точности модели в поле.
+            val operatorConfirmed = report.defects.count {
+                it.review == ai.roadscan.core.model.ReviewDecision.CONFIRMED
+            }
+            val operatorRejected = report.defects.count {
+                it.review == ai.roadscan.core.model.ReviewDecision.REJECTED
+            }
+            StatRow(
+                stringResource(R.string.report_metric_operator_confirmed),
+                "$operatorConfirmed",
+            )
+            StatRow(
+                stringResource(R.string.report_metric_operator_rejected),
+                "$operatorRejected",
+            )
             StatRow(
                 stringResource(R.string.report_metric_latency),
                 stringResource(R.string.report_metric_latency_value, stats.averageLatencyMs),

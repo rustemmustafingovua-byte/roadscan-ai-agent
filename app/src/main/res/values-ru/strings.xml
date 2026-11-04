@@ -146,6 +146,8 @@
     <string name="readiness_hint_documents">Заполните объект, дорогу и заказчика</string>
     <string name="readiness_hint_equipment">Запустите проверку оборудования в настройках</string>
     <string name="hud_defects_button">Находки</string>
+    <string name="report_metric_operator_confirmed">Подтверждено оператором</string>
+    <string name="report_metric_operator_rejected">Отклонено оператором</string>
     <string name="settings_legal_thirdparty">Сторонние компоненты</string>
     <string name="legal_close">Закрыть</string>
     <string name="settings_footer">RoadScan AI Agent · офлайн-обработка, данные не покидают устройство</string>
