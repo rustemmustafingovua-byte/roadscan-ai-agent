@@ -36,6 +36,10 @@ interface DocStrings {
     val confirmedLabel: String
     val visualOnlyLabel: String
     val clustersLabel: String
+    /** Единица счёта для числа дефектов (не кластеров). */
+    val defectsCountLabel: String
+    /** Единица счёта для числа зон повреждения (кластеров). */
+    val zonesCountLabel: String
 
     // --- смета ---
     val estimateTitle: String
@@ -117,6 +121,8 @@ interface DocStrings {
         override val confirmedLabel = "Підтверджено"
         override val visualOnlyLabel = "Лише візуально"
         override val clustersLabel = "Кластерів"
+        override val defectsCountLabel = "Дефектів"
+        override val zonesCountLabel = "Зон пошкодження"
 
         override val estimateTitle = "Кошторис"
         override val codeColumn = "Код"
@@ -209,6 +215,8 @@ interface DocStrings {
         override val confirmedLabel = "Подтверждено"
         override val visualOnlyLabel = "Visual-only"
         override val clustersLabel = "Кластеров"
+        override val defectsCountLabel = "Дефектов"
+        override val zonesCountLabel = "Зон повреждения"
 
         override val estimateTitle = "Смета"
         override val codeColumn = "Код"

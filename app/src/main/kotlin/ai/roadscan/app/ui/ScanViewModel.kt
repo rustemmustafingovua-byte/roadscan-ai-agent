@@ -125,6 +125,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     private var lastOverlayUpdateMs = 0L
 
+    /** Идентификаторы дефектов, уже записанных в базу текущей смены. */
+    private val persistedDefectIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
     val analyzer = FrameAnalyzer(
         agentProvider = { agent },
         calibrationProvider = { calibration },
@@ -240,6 +243,21 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 breakdown = emptyList(),
             )
         }
+        // Смена заводится в базе сразу: переживает убийство процесса.
+        persistedDefectIds.clear()
+        val sessionId = agent.currentSessionId
+        if (sessionId != null) {
+            viewModelScope.launch {
+                runCatching {
+                    repository.beginSession(
+                        sessionId = sessionId,
+                        startedAtMs = System.currentTimeMillis(),
+                        metaJson = ReportMeta.toJson(meta),
+                        calibrationJson = ai.roadscan.core.calibration.CalibrationProfile.toJson(calibration),
+                    )
+                }
+            }
+        }
         startTicker()
     }
 
@@ -339,6 +357,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 val defects = agent.acceptedDefects
+                persistNewDefects(defects)
                 val breakdown = defects.groupingBy { it.type }.eachCount()
                     .entries.sortedByDescending { it.value }
                     .map { it.key to it.value }
@@ -371,6 +390,21 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 delay(1_000)
             }
+        }
+    }
+
+    /**
+     * Дописывает в базу дефекты, найденные с прошлого тика.
+     *
+     * Смена не должна теряться, если Android убьёт процесс: пишем находки
+     * по ходу, а не только в конце. Идентификаторы уже записанных дефектов
+     * держим в памяти, поэтому повторная запись не случается.
+     */
+    private fun persistNewDefects(defects: List<ai.roadscan.core.model.DefectRecord>) {
+        val fresh = defects.filter { persistedDefectIds.add(it.id) }
+        if (fresh.isEmpty()) return
+        viewModelScope.launch {
+            runCatching { repository.appendDefects(fresh) }
         }
     }
 
@@ -503,15 +537,24 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(busy = true) }
             val defects = withContext(Dispatchers.IO) { repository.loadDefects(session.id) }
             val (sessionMeta, sessionCalibration) = repository.metaOf(session)
+            // У незавершённой смены итоги в строке ещё нулевые — считаем по факту.
+            val stats = if (session.endedAtMs > 0L) {
+                SessionStats(
+                    confirmed = session.confirmedCount,
+                    visualOnly = session.visualOnlyCount,
+                )
+            } else {
+                SessionStats(
+                    confirmed = defects.count { it.confirmed },
+                    visualOnly = defects.count { !it.confirmed },
+                )
+            }
             val report = postProcessing.process(
                 sessionId = session.id,
                 startedAtMs = session.startedAtMs,
-                endedAtMs = session.endedAtMs,
+                endedAtMs = if (session.endedAtMs > 0L) session.endedAtMs else System.currentTimeMillis(),
                 defects = defects,
-                stats = SessionStats(
-                    confirmed = session.confirmedCount,
-                    visualOnly = session.visualOnlyCount,
-                ),
+                stats = stats,
                 meta = sessionMeta,
                 calibration = sessionCalibration ?: calibration,
             )

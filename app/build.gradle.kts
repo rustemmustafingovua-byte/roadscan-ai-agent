@@ -38,6 +38,10 @@ android {
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
+                // minSdk 26: JAR-подпись (v1) не нужна, хватает v2/v3.
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }

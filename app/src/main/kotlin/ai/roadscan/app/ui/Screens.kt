@@ -1221,14 +1221,26 @@ private fun SessionRow(session: SessionEntity, currency: String, onClick: () -> 
             Column(Modifier.weight(1f)) {
                 Text(session.id, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
-                        .format(Date(session.startedAtMs)),
+                    if (session.endedAtMs > 0L) {
+                        SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
+                            .format(Date(session.startedAtMs))
+                    } else {
+                        stringResource(R.string.report_session_in_progress)
+                    },
                     fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (session.endedAtMs > 0L) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        Warn
+                    },
                 )
             }
             Text(
-                stringResource(R.string.report_money_value, session.total, currency),
+                if (session.endedAtMs > 0L) {
+                    stringResource(R.string.report_money_value, session.total, currency)
+                } else {
+                    stringResource(R.string.report_session_in_progress_short)
+                },
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
             )

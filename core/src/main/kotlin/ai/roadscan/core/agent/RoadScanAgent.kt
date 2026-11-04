@@ -35,7 +35,16 @@ data class SessionStats(
     val peakCpuTempC: Float = Float.NaN,
     val averageLatencyMs: Double = 0.0,
 ) {
-    val rejectedAsFalsePositive: Int get() = rawDetections - confirmed
+    /**
+     * Детекции, отброшенные и не сохранённые ни как подтверждённые, ни как
+     * visual-only: дубликаты в окне дедупликации и кадры без координат.
+     *
+     * Раньше здесь было `rawDetections - confirmed`, из-за чего в счётчик
+     * попадали ещё и визуальные кандидаты — по нему нельзя было судить о
+     * качестве фильтрации.
+     */
+    val rejectedAsFalsePositive: Int
+        get() = (rawDetections - confirmed - visualOnly).coerceAtLeast(0)
 }
 
 data class SessionData(

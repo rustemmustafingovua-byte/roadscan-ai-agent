@@ -47,10 +47,10 @@ class VideoMontageRenderer(
         output.parentFile?.mkdirs()
         if (output.exists()) output.delete()
 
-        val decoder = VideoStreamDecoder(context, info)
         val brander = VideoBrander(outputWidth, outputHeight, texts, demoWatermark)
         val canvasBitmap = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(canvasBitmap)
+        var decoder: VideoStreamDecoder? = null
 
         val introFrames = framesFor(VideoBrander.INTRO_MS)
         val outroFrames = if (plan.isEmpty) framesFor(VideoBrander.NO_DEFECTS_MS) else framesFor(VideoBrander.OUTRO_MS)
@@ -64,6 +64,9 @@ class VideoMontageRenderer(
         val encoder = Mp4Encoder(outputWidth, outputHeight, fps, output)
 
         try {
+            // Внутри try: конструктор декодера бросает на неподдерживаемом
+            // кодеке, и тогда файл не должен остаться на диске.
+            decoder = VideoStreamDecoder(context, info)
             // Титул
             if (plan.isEmpty) {
                 brander.drawNoDefects(canvas, dateMs)
@@ -89,11 +92,11 @@ class VideoMontageRenderer(
             plan.segments.forEachIndexed { index, segment ->
                 val branded = segment.events.map { BrandedEvent(it, ids[it] ?: "D-000") }
                 val frames = framesFor(segment.durationMs)
-                decoder.seekTo(segment.startMs)
+                decoder?.seekTo(segment.startMs)
                 for (frameIndex in 0 until frames) {
                     ensureActive(isActive)
                     val timeMs = segment.startMs + frameIndex * 1_000L / fps
-                    val source = decoder.advanceTo(timeMs)
+                    val source = decoder?.advanceTo(timeMs)
                     if (source == null) {
                         // Конец файла или провал seek: держим последний кадр,
                         // иначе ролик «съедает» длительность и титры разъезжаются.
@@ -157,6 +160,9 @@ class VideoMontageRenderer(
                 )
             }
             encoder.finish()
+            if (!encoder.isComplete || !output.exists() || output.length() < MIN_OUTPUT_BYTES) {
+                throw IllegalStateException("ролик не записан: файл повреждён или пуст")
+            }
         } catch (error: Throwable) {
             runCatching { encoder.close() }
             runCatching { output.delete() }
@@ -164,7 +170,7 @@ class VideoMontageRenderer(
         } finally {
             canvasBitmap.recycle()
             runCatching { encoder.close() }
-            runCatching { decoder.close() }
+            runCatching { decoder?.close() }
         }
 
         return output
@@ -206,6 +212,9 @@ class VideoMontageRenderer(
     fun outputFps(): Int = fps
 
     companion object {
+        /** Минимальный размер валидного ролика: меньше — файл заведомо битый. */
+        private const val MIN_OUTPUT_BYTES = 1_024L
+
         fun outputFile(directory: File, prefix: String = "roadscan_review"): File {
             val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
                 .format(java.util.Date())

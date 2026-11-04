@@ -13,6 +13,41 @@ class RoadScanRepository(private val dao: RoadScanDao) {
 
     fun observeSessionCount() = dao.observeSessionCount()
 
+    /**
+     * Смена заводится в базе сразу после старта, а дефекты дописываются по
+     * мере находки. Если Android убьёт процесс (мало памяти, пользователь
+     * смахнул приложение), собранное не пропадает: сессия остаётся в списке
+     * и открывается как есть. `endedAtMs = 0` — признак незавершённой смены.
+     */
+    suspend fun beginSession(
+        sessionId: String,
+        startedAtMs: Long,
+        metaJson: String = "",
+        calibrationJson: String = "",
+        createdAtMs: Long = System.currentTimeMillis(),
+    ) {
+        dao.insertSession(
+            SessionEntity(
+                id = sessionId,
+                startedAtMs = startedAtMs,
+                endedAtMs = 0L,
+                confirmedCount = 0,
+                visualOnlyCount = 0,
+                totalAreaM2 = 0.0,
+                total = 0.0,
+                createdAtMs = createdAtMs,
+                metaJson = metaJson,
+                calibrationJson = calibrationJson,
+            ),
+        )
+    }
+
+    /** Дописывает новые дефекты незавершённой смены (идемпотентно по id). */
+    suspend fun appendDefects(defects: List<DefectRecord>) {
+        if (defects.isEmpty()) return
+        dao.insertDefects(defects.map { it.toEntity() })
+    }
+
     suspend fun save(report: SessionReport, createdAtMs: Long = System.currentTimeMillis()) {
         val session = SessionEntity(
             id = report.sessionId,

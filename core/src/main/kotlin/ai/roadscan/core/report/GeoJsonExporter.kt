@@ -19,13 +19,8 @@ object GeoJsonExporter {
         val features = mutableListOf<String>()
 
         for (cluster in report.clusters) {
-            val geometry = if (cluster.polygon.size >= 3) {
-                polygon(cluster.polygon)
-            } else {
-                point(cluster.center.lat, cluster.center.lon)
-            }
             features += feature(
-                geometry = geometry,
+                geometry = geometryFor(cluster),
                 properties = mapOf(
                     "cluster_id" to cluster.id,
                     "session_id" to report.sessionId,
@@ -45,7 +40,7 @@ object GeoJsonExporter {
         if (includeVisualOnly) {
             for (cluster in report.visualOnlyClusters) {
                 features += feature(
-                    geometry = point(cluster.center.lat, cluster.center.lon),
+                    geometry = geometryFor(cluster),
                     properties = mapOf(
                         "cluster_id" to cluster.id,
                         "session_id" to report.sessionId,
@@ -54,6 +49,8 @@ object GeoJsonExporter {
                         "status" to ConfirmationStatus.UNCONFIRMED_VISUAL_ONLY.name,
                         "status_label" to strings.confirmation(cluster.status),
                         "area_m2" to round(cluster.areaM2, 2),
+                        "max_depth_mm" to round(cluster.maxDepthMm, 1),
+                        "avg_depth_mm" to round(cluster.avgDepthMm, 1),
                         "max_severity" to cluster.maxSeverity,
                         "defects" to cluster.defectCount,
                     ),
@@ -92,8 +89,33 @@ object GeoJsonExporter {
         return "{\"type\":\"Feature\",\"geometry\":$geometry,\"properties\":{$props}}"
     }
 
-    private fun point(lat: Double, lon: Double): String =
-        String.format(Locale.US, "{\"type\":\"Point\",\"coordinates\":[%.7f,%.7f]}", lon, lat)
+    /**
+     * Геометрия зоны повреждения.
+     *
+     * Все объекты выгружаются полигонами, а не точками: в ГИС зона нужна для
+     * обмеження ділянки та площі, точка її втрачає (мережа тріщин на 10 м²
+     * виглядала б як крапка). Статус при цьому зберігається у властивостях
+     * об'єкта, тому аналітик відрізняє підтверджені дефекти від кандидатів.
+     */
+    private fun geometryFor(cluster: ai.roadscan.core.geo.DefectCluster): String {
+        if (cluster.polygon.size >= 3) return polygon(cluster.polygon)
+        return squareAround(cluster.center, cluster.areaM2)
+    }
+
+    /** Квадрат по центру и площади — запасной вариант, если полигона нет. */
+    private fun squareAround(center: ai.roadscan.core.model.GeoPoint, areaM2: Double): String {
+        val half = kotlin.math.sqrt(kotlin.math.max(areaM2, 0.04) / 4.0)
+        val dLat = half / 111_320.0
+        val dLon = half / (111_320.0 * kotlin.math.cos(Math.toRadians(center.lat)))
+        return polygon(
+            listOf(
+                ai.roadscan.core.model.GeoPoint(center.lat - dLat, center.lon - dLon),
+                ai.roadscan.core.model.GeoPoint(center.lat - dLat, center.lon + dLon),
+                ai.roadscan.core.model.GeoPoint(center.lat + dLat, center.lon + dLon),
+                ai.roadscan.core.model.GeoPoint(center.lat + dLat, center.lon - dLon),
+            ),
+        )
+    }
 
     private fun polygon(points: List<ai.roadscan.core.model.GeoPoint>): String {
         val coords = points.joinToString(",") {

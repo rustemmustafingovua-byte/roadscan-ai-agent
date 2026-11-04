@@ -232,7 +232,7 @@ object ReportXlsxBuilder {
             listOf(t("Сирих детекцій", "Сырых детекций"), st.rawDetections),
             listOf(t("Підтверджено фізикою", "Подтверждено физикой"), st.confirmed),
             listOf(s.visualOnlyLabel, st.visualOnly),
-            listOf(t("Відфільтровано як хибні", "Отфильтровано как ложные"), st.rejectedAsFalsePositive),
+            listOf(t("Відкинуто (дублікати, без GPS)", "Отброшено (дубликаты, без GPS)"), st.rejectedAsFalsePositive),
             listOf(t("Дублікатів об'єднано", "Дубликатов слито"), st.duplicatesMerged),
             listOf(t("Середня затримка кадру, мс", "Средняя задержка кадра, мс"), round(st.averageLatencyMs, 2)),
             listOf(

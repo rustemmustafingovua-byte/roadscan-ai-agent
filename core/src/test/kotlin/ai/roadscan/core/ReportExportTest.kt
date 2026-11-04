@@ -8,6 +8,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.double
 import java.io.ByteArrayInputStream
 import java.util.zip.ZipInputStream
 import javax.xml.parsers.DocumentBuilderFactory
@@ -48,6 +49,41 @@ class ReportExportTest {
         }
         assertTrue(statuses.contains("CONFIRMED_PHYSICAL"))
         assertTrue(statuses.contains("UNCONFIRMED_VISUAL_ONLY"))
+    }
+
+    @Test
+    fun `every geojson feature is a polygon so gis keeps the damage zone`() {
+        val json = Json.parseToJsonElement(GeoJsonExporter.export(report())).jsonObject
+        val features = json["features"]!!.jsonArray.map { it.jsonObject }
+
+        // Точка теряет площадь зоны: в ГІС её не измерить. Поэтому все объекты —
+        // полигоны, а статус отличает подтверждённые дефекты от кандидатов.
+        for (feature in features) {
+            val geometry = feature["geometry"]!!.jsonObject
+            assertEquals(
+                "Polygon",
+                geometry["type"]!!.jsonPrimitive.content,
+                "Ожидался полигон зоны для ${feature["properties"]}",
+            )
+            val ring = geometry["coordinates"]!!.jsonArray[0].jsonArray
+            assertTrue(ring.size >= 4, "Кольцо полигона должно быть замкнутым и иметь >= 4 точек")
+        }
+    }
+
+    @Test
+    fun `geojson rings are counterclockwise as required by rfc 7946`() {
+        val json = Json.parseToJsonElement(GeoJsonExporter.export(report())).jsonObject
+        for (feature in json["features"]!!.jsonArray.map { it.jsonObject }) {
+            val ring = feature["geometry"]!!.jsonObject["coordinates"]!!.jsonArray[0].jsonArray
+            var sum = 0.0
+            for (i in ring.indices) {
+                val cur = ring[i].jsonArray
+                val nxt = ring[(i + 1) % ring.size].jsonArray
+                sum += cur[0].jsonPrimitive.double * nxt[1].jsonPrimitive.double -
+                    nxt[0].jsonPrimitive.double * cur[1].jsonPrimitive.double
+            }
+            assertTrue(sum > 0, "Внешнее кольцо должно идти против часовой стрелки (RFC 7946)")
+        }
     }
 
     @Test

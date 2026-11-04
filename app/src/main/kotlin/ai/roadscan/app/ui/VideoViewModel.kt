@@ -140,8 +140,11 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         job = viewModelScope.launch(Dispatchers.Default) {
-            val decoder = VideoStreamDecoder(application, info)
             try {
+                // Декодер создаём внутри try: у неподдерживаемого кодека его
+                // конструктор бросает, и вне try исключение ушло бы из
+                // viewModelScope в глобальный обработчик — то есть в краш.
+                val decoder = VideoStreamDecoder(application, info)
                 val texts = texts()
                 val analyzer = VideoAnalyzer(detector = detectorLazy.value::detect)
                 val analysis = try {

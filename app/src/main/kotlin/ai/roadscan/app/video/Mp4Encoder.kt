@@ -30,6 +30,7 @@ class Mp4Encoder(
     private var muxerStarted = false
     private var frameIndex = 0L
     private var closed = false
+    private var completed = false
 
     init {
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
@@ -77,10 +78,17 @@ class Mp4Encoder(
         drain(endOfStream = false)
     }
 
+    /**
+     * Закрывает поток: ставит кадр EOS и дописывает хвост в контейнер.
+     *
+     * Если EOS не удалось поставить в очередь, файл останется без завершения
+     * (потребитель не сможет его проиграть) — поэтому это ошибка, а не
+     * тихий выход: вызывающий код удаляет битый файл.
+     */
     fun finish() {
         var queued = false
         var attempts = 0
-        while (!queued && attempts < 50) {
+        while (!queued && attempts < EOS_QUEUE_ATTEMPTS) {
             attempts++
             val inputIndex = codec.dequeueInputBuffer(TIMEOUT_US)
             if (inputIndex >= 0) {
@@ -94,7 +102,11 @@ class Mp4Encoder(
                 queued = true
             }
         }
-        if (queued) drain(endOfStream = true)
+        if (!queued) {
+            throw IllegalStateException("не удалось поставить кадр EOS в очередь кодировщика")
+        }
+        drain(endOfStream = true)
+        completed = true
     }
 
     private fun drain(endOfStream: Boolean) {
@@ -251,8 +263,12 @@ class Mp4Encoder(
         runCatching { muxer.release() }
     }
 
+    /** true — поток закрыт корректно и файл пригоден для воспроизведения. */
+    val isComplete: Boolean get() = completed
+
     private companion object {
         const val TIMEOUT_US = 10_000L
         const val MAX_INPUT_ATTEMPTS = 400
+        const val EOS_QUEUE_ATTEMPTS = 200
     }
 }

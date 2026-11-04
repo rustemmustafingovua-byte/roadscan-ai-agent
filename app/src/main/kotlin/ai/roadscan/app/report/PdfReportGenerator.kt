@@ -121,9 +121,12 @@ class PdfReportGenerator(private val strings: DocStrings = DocStrings.DEFAULT) {
         }
         y += 58f
         writer.text(
-            "${strings.confirmedLabel}: ${report.stats.confirmed} · " +
-                "${strings.visualOnlyLabel}: ${report.stats.visualOnly} · " +
-                "${strings.clustersLabel}: ${report.clusters.size}",
+            // Числа дефектов и число зон — разные величины, разводим их словами,
+            // иначе «26 · 8 · 22» читается как три счётчика одного рода.
+            "${strings.defectsCountLabel}: ${strings.confirmedLabel.lowercase()} " +
+                "${report.stats.confirmed}, ${strings.visualOnlyLabel.lowercase()} " +
+                "${report.stats.visualOnly} · ${strings.zonesCountLabel}: " +
+                "${report.clusters.size} + ${report.visualOnlyClusters.size}",
             bodyPaint,
             40f,
             y,

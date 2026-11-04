@@ -125,6 +125,8 @@
     <string name="hud_quality_poor">КРИТИЧНО</string>
     <string name="hud_percent">%1$d%%</string>
     <string name="hud_battery">Батарея</string>
+    <string name="report_session_in_progress">Смена идёт — данные сохранены</string>
+    <string name="report_session_in_progress_short">в процессе</string>
     <string name="hud_backend">Вычисления</string>
     <string name="hud_temp">Нагрев</string>
     <string name="hud_gps">GPS</string>
