@@ -6,6 +6,7 @@ import ai.roadscan.core.model.ConfirmationStatus
 import ai.roadscan.core.model.DefectType
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DefectClustererTest {
@@ -52,9 +53,32 @@ class DefectClustererTest {
     }
 
     @Test
-    fun `defects without geo are skipped`() {
-        val noGeo = Fixtures.defect().copy(location = null, latitude = null, longitude = null)
-        assertTrue(clusterer.cluster(listOf(noGeo)).isEmpty())
+    fun `defects without geo are grouped by kilometer not dropped`() {
+        // Обследование видео: GPS нет, но километраж участка задан.
+        // Раньше такие дефекты просто терялись — отчёт выходил пустым.
+        val noGeo = Fixtures.defect().copy(
+            location = null,
+            latitude = null,
+            longitude = null,
+            km = 12.4,
+        )
+        val clusters = clusterer.cluster(listOf(noGeo))
+
+        assertEquals(1, clusters.size, "Дефект без координат не должен теряться")
+        val cluster = clusters.single()
+        assertFalse(cluster.hasGeometry)
+        assertEquals(12.4, cluster.km!!, 1e-6)
+        assertTrue(cluster.areaM2 > 0.0)
+    }
+
+    @Test
+    fun `nearby kilometers form one zone`() {
+        val defects = listOf(10.0, 10.02, 10.03, 12.0).map { km ->
+            Fixtures.defect().copy(location = null, latitude = null, longitude = null, km = km)
+        }
+        val clusters = clusterer.cluster(defects)
+
+        assertEquals(2, clusters.size, "Соседние километры — одна зона, дальние — другая")
     }
 
     @Test

@@ -65,6 +65,10 @@ interface DocStrings {
     val countColumn: String
     val latitudeColumn: String
     val longitudeColumn: String
+    /** Колонка километража (обследование без GPS). */
+    val kmColumn: String
+    /** Колонка с количеством дефектов в зоне. */
+    val sectionColumn: String
     val statusConfirmed: String
     val statusVisual: String
     val visualOnlyNote: String
@@ -146,6 +150,8 @@ interface DocStrings {
         override val countColumn = "К-сть"
         override val latitudeColumn = "Широта"
         override val longitudeColumn = "Довгота"
+        override val kmColumn = "Км"
+        override val sectionColumn = "Деф."
         override val statusConfirmed = "підтверджено"
         override val statusVisual = "лише візуально"
         override val visualOnlyNote =
@@ -240,6 +246,8 @@ interface DocStrings {
         override val countColumn = "Кол-во"
         override val latitudeColumn = "Широта"
         override val longitudeColumn = "Долгота"
+        override val kmColumn = "Км"
+        override val sectionColumn = "Деф."
         override val statusConfirmed = "confirmed"
         override val statusVisual = "visual-only"
         override val visualOnlyNote =

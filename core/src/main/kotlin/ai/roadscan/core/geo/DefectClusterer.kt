@@ -18,6 +18,10 @@ data class DefectCluster(
     val maxSeverity: Int,
     val defectCount: Int,
     val status: ConfirmationStatus,
+    /** Километраж зоны по оси дороги (для обследований без GPS). */
+    val km: Double? = null,
+    /** Координат нет — зона задана только километражом. */
+    val hasGeometry: Boolean = true,
 ) {
     val confirmed: Boolean get() = status == ConfirmationStatus.CONFIRMED_PHYSICAL
 }
@@ -33,16 +37,74 @@ class DefectClusterer(
     private val config: AgentConfig = AgentConfig.DEFAULT,
 ) {
     fun cluster(defects: List<DefectRecord>): List<DefectCluster> {
-        val withGeo = defects.filter { it.location != null }
-        if (withGeo.isEmpty()) return emptyList()
+        if (defects.isEmpty()) return emptyList()
 
-        val frame = GeoMath.LocalFrame(withGeo.first().location!!)
+        // Дефекты с координатами кластеризуются по геометрии (DBSCAN в ENU).
+        val geolocated = defects.filter { it.location != null }
+        // Без координат (обследование видео без привязки к точке) группируем
+        // по километражу: соседние километры — одна зона повреждения.
+        val kilometerOnly = defects.filter { it.location == null }
 
-        return withGeo.groupBy { it.type }.flatMap { (type, group) ->
-            dbscan(group, frame).mapIndexed { index, members ->
-                toCluster(type, members, frame, index)
+        val result = mutableListOf<DefectCluster>()
+        if (geolocated.isNotEmpty()) {
+            val frame = GeoMath.LocalFrame(geolocated.first().location!!)
+            result += geolocated.groupBy { it.type }.flatMap { (type, group) ->
+                dbscan(group, frame).mapIndexed { index, members ->
+                    toCluster(type, members, frame, index)
+                }
             }
-        }.sortedByDescending { it.areaM2 }
+        }
+        result += clusterByKilometer(kilometerOnly)
+        return result.sortedByDescending { it.areaM2 }
+    }
+
+    /**
+     * Кластеризация дефектов без координат: по километражу, с допуском
+     * [kmMergeGapM]. Используется для видеообследований, где GPS нет, но
+     * километраж участка задан оператором.
+     */
+    private fun clusterByKilometer(defects: List<DefectRecord>): List<DefectCluster> {
+        if (defects.isEmpty()) return emptyList()
+        return defects.groupBy { it.type }.flatMap { (type, group) ->
+            group.sortedBy { it.km ?: it.timestampMs.toDouble() }
+                .fold(mutableListOf<List<DefectRecord>>()) { acc, defect ->
+                    val last = acc.lastOrNull()
+                    val lastKm = last?.firstOrNull()?.km
+                    val near = lastKm != null && defect.km != null &&
+                        kotlin.math.abs(defect.km - lastKm) <= kmMergeGapM
+                    if (near) acc[acc.lastIndex] = last!! + defect else acc += mutableListOf(defect)
+                    acc
+                }
+                .mapIndexed { index, members ->
+                    val kms = members.mapNotNull { it.km }
+                    val area = members.sumOf { it.estimatedAreaM2 }.coerceAtLeast(0.01)
+                    val depths = members.filter { it.confirmed }.map { it.estimatedDepthMm }
+                        .ifEmpty { members.map { it.estimatedDepthMm } }
+                    DefectCluster(
+                        id = "CL-${type.name.take(2)}-$index-KM${members.first().id.takeLast(6)}",
+                        type = type,
+                        center = GeoPoint(0.0, 0.0),
+                        polygon = emptyList(),
+                        areaM2 = area,
+                        maxDepthMm = depths.maxOrNull() ?: 0.0,
+                        avgDepthMm = depths.average().takeIf { !it.isNaN() } ?: 0.0,
+                        maxSeverity = members.maxOf { it.severity },
+                        defectCount = members.size,
+                        status = if (members.any { it.confirmed }) {
+                            ConfirmationStatus.CONFIRMED_PHYSICAL
+                        } else {
+                            ConfirmationStatus.UNCONFIRMED_VISUAL_ONLY
+                        },
+                        km = kms.average().takeIf { kms.isNotEmpty() },
+                        hasGeometry = false,
+                    )
+                }
+        }
+    }
+
+    private companion object {
+        /** Сколько километров считать одной зоной повреждения. */
+        const val kmMergeGapM = 0.05
     }
 
     private fun dbscan(

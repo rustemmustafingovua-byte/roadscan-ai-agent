@@ -51,7 +51,7 @@ class AppContainer(application: Application) {
         RoadScanDatabase::class.java,
         "roadscan.db",
     )
-        .addMigrations(RoadScanDatabase.MIGRATION_1_2)
+        .addMigrations(RoadScanDatabase.MIGRATION_1_2, RoadScanDatabase.MIGRATION_2_3)
         .fallbackToDestructiveMigration()
         .build()
 

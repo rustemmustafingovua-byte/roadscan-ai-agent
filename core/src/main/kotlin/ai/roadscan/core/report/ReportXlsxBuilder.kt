@@ -113,12 +113,13 @@ object ReportXlsxBuilder {
         report.meta.headline().takeIf { it.isNotBlank() }?.let { rows.add(listOf(it)) }
         if (report.meta.demo) rows.add(listOf(s.demoNotice))
         rows.add(emptyList())
+        val hasKm = (report.clusters + report.visualOnlyClusters).any { it.km != null }
         rows.add(
             listOf(
                 s.idColumn, s.typeColumn, s.statusColumn, "${s.areaLabel}, м²",
                 "${s.maxDepthColumn}., мм", "${s.avgDepthColumn}., мм", s.severityColumn,
                 s.countColumn, s.latitudeColumn, s.longitudeColumn,
-            ),
+            ) + if (hasKm) listOf(s.kmColumn) else emptyList(),
         )
 
         report.clusters.forEach { c ->
@@ -134,7 +135,7 @@ object ReportXlsxBuilder {
                     c.defectCount,
                     round(c.center.lat, 7),
                     round(c.center.lon, 7),
-                ),
+                ) + if (hasKm) listOf(c.km?.let { round(it, 3) }) else emptyList(),
             )
         }
 
@@ -154,7 +155,7 @@ object ReportXlsxBuilder {
                         c.defectCount,
                         round(c.center.lat, 7),
                         round(c.center.lon, 7),
-                    ),
+                    ) + if (hasKm) listOf(c.km?.let { round(it, 3) }) else emptyList(),
                 )
             }
         }
@@ -186,6 +187,7 @@ object ReportXlsxBuilder {
                 if (uk) "Ближнє поле" else "Ближнее поле",
                 s.latitudeColumn,
                 s.longitudeColumn,
+                s.kmColumn,
             ),
         )
         val yes = if (uk) "так" else "да"
@@ -206,6 +208,7 @@ object ReportXlsxBuilder {
                     if (d.nearField) yes else no,
                     d.latitude?.let { round(it, 7) },
                     d.longitude?.let { round(it, 7) },
+                    d.km?.let { round(it, 3) },
                 ),
             )
         }
@@ -214,7 +217,7 @@ object ReportXlsxBuilder {
             name = s.sheetDefects,
             rows = rows,
             headerRowCount = 1,
-            columnWidths = listOf(14, 20, 20, 11, 13, 12, 12, 12, 9, 13, 13, 13),
+            columnWidths = listOf(14, 20, 20, 11, 13, 12, 12, 12, 9, 13, 13, 13, 11),
         )
     }
 

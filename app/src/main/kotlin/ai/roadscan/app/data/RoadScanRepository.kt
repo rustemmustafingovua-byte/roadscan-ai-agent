@@ -89,6 +89,7 @@ class RoadScanRepository(private val dao: RoadScanDao) {
         visionConfidence = visionConfidence,
         impactG = impactG,
         nearField = nearField,
+        km = km,
     )
 
     private fun DefectEntity.toRecord(): DefectRecord {
@@ -114,6 +115,7 @@ class RoadScanRepository(private val dao: RoadScanDao) {
             nearField = nearField,
             latitude = latitude,
             longitude = longitude,
+            km = km,
         )
     }
 }

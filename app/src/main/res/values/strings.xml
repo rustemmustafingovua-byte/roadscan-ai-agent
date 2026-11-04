@@ -47,7 +47,7 @@
     <string name="report_metric_duration">Час зміни</string>
     <string name="report_metric_duration_value">%1$d хв</string>
     <string name="report_metric_frames">Кадрів оброблено</string>
-    <string name="report_metric_false">Відфільтровано хибних</string>
+    <string name="report_metric_false">Відкинуто (дублікати, без GPS)</string>
     <string name="report_metric_dupes">Дублікатів об\'єднано</string>
     <string name="report_metric_latency">Затримка кадру</string>
     <string name="report_metric_latency_value">%1$.1f мс</string>

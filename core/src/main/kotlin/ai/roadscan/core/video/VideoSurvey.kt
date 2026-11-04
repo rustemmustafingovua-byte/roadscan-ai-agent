@@ -89,6 +89,7 @@ data class SurveyDefect(
         visionConfidence = confidence,
         impactG = 0f,
         nearField = box.bottom >= 0.55f,
+        km = km,
     )
 }
 

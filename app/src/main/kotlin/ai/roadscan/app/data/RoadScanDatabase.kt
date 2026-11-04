@@ -54,6 +54,11 @@ data class DefectEntity(
     val visionConfidence: Float,
     val impactG: Float,
     val nearField: Boolean,
+    /**
+     * Километраж по оси дороги — для обследований видео без GPS.
+     * Без него дефект теряет привязку и не попадает в ведомость.
+     */
+    val km: Double? = null,
 )
 
 @Dao
@@ -86,7 +91,7 @@ interface RoadScanDao {
 
 @Database(
     entities = [SessionEntity::class, DefectEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class RoadScanDatabase : RoomDatabase() {
@@ -98,6 +103,13 @@ abstract class RoadScanDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE sessions ADD COLUMN metaJson TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE sessions ADD COLUMN calibrationJson TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        /** v3: километраж дефекта (обследование видео без GPS). */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE defects ADD COLUMN km REAL")
             }
         }
     }

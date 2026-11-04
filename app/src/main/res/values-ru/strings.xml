@@ -43,7 +43,7 @@
     <string name="report_metric_duration">Время смены</string>
     <string name="report_metric_duration_value">%1$d мин</string>
     <string name="report_metric_frames">Кадров обработано</string>
-    <string name="report_metric_false">Отфильтровано ложных</string>
+    <string name="report_metric_false">Отброшено (дубликаты, без GPS)</string>
     <string name="report_metric_dupes">Дубликатов слито</string>
     <string name="report_metric_latency">Задержка кадра</string>
     <string name="report_metric_latency_value">%1$.1f мс</string>

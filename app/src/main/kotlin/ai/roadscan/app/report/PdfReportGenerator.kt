@@ -193,6 +193,9 @@ class PdfReportGenerator(private val strings: DocStrings = DocStrings.DEFAULT) {
     private fun clusters(writer: Writer, report: SessionReport, startY: Float, currency: String): Float {
         var y = startY
         val columns = floatArrayOf(40f, 90f, 200f, 260f, 320f, 380f, 470f, 520f)
+        // Обследование видео не даёт координат — вместо них в ведомости
+        // километраж по оси дороги.
+        val geoAvailable = (report.clusters + report.visualOnlyClusters).any { it.hasGeometry }
         val headers = listOf(
             strings.idColumn,
             strings.typeColumn,
@@ -200,8 +203,8 @@ class PdfReportGenerator(private val strings: DocStrings = DocStrings.DEFAULT) {
             "${strings.areaLabel}, м²",
             strings.maxDepthColumn,
             strings.severityColumn,
-            strings.latitudeColumn,
-            strings.longitudeColumn,
+            if (geoAvailable) strings.latitudeColumn else strings.kmColumn,
+            if (geoAvailable) strings.longitudeColumn else strings.sectionColumn,
         )
         writer.text(strings.registerTitle, bodyBoldPaint, 40f, y)
         y += 14f
@@ -223,8 +226,23 @@ class PdfReportGenerator(private val strings: DocStrings = DocStrings.DEFAULT) {
             writer.text("%.2f м²".format(cluster.areaM2), bodyPaint, columns[3] + 2f, y + 10f)
             writer.text("%.1f мм".format(cluster.maxDepthMm), bodyPaint, columns[4] + 2f, y + 10f)
             writer.text(cluster.maxSeverity.toString(), bodyPaint, columns[5] + 2f, y + 10f)
-            writer.text("%.6f".format(cluster.center.lat), bodyPaint, columns[6] + 2f, y + 10f)
-            writer.text("%.6f".format(cluster.center.lon), bodyPaint, columns[7] + 2f, y + 10f)
+            if (geoAvailable) {
+                writer.text("%.6f".format(cluster.center.lat), bodyPaint, columns[6] + 2f, y + 10f)
+                writer.text("%.6f".format(cluster.center.lon), bodyPaint, columns[7] + 2f, y + 10f)
+            } else {
+                writer.text(
+                    cluster.km?.let { "%.3f".format(it) } ?: "—",
+                    bodyPaint,
+                    columns[6] + 2f,
+                    y + 10f,
+                )
+                writer.text(
+                    cluster.defectCount.toString(),
+                    bodyPaint,
+                    columns[7] + 2f,
+                    y + 10f,
+                )
+            }
             y += 16f
         }
 

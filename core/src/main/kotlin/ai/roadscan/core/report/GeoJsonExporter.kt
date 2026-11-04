@@ -33,6 +33,7 @@ object GeoJsonExporter {
                     "avg_depth_mm" to round(cluster.avgDepthMm, 1),
                     "max_severity" to cluster.maxSeverity,
                     "defects" to cluster.defectCount,
+                    "km" to cluster.km?.let { round(it, 3) },
                 ),
             )
         }
@@ -53,6 +54,7 @@ object GeoJsonExporter {
                         "avg_depth_mm" to round(cluster.avgDepthMm, 1),
                         "max_severity" to cluster.maxSeverity,
                         "defects" to cluster.defectCount,
+                        "km" to cluster.km?.let { round(it, 3) },
                     ),
                 )
             }
@@ -77,9 +79,10 @@ object GeoJsonExporter {
         }
     }
 
-    private fun feature(geometry: String, properties: Map<String, Any>): String {
+    private fun feature(geometry: String, properties: Map<String, Any?>): String {
         val props = properties.entries.joinToString(",") { (k, v) ->
             val value = when (v) {
+                null -> "null"
                 is String -> "\"${escape(v)}\""
                 is Number -> v.toString()
                 else -> "\"${escape(v.toString())}\""
@@ -96,8 +99,13 @@ object GeoJsonExporter {
      * обмеження ділянки та площі, точка її втрачає (мережа тріщин на 10 м²
      * виглядала б як крапка). Статус при цьому зберігається у властивостях
      * об'єкта, тому аналітик відрізняє підтверджені дефекти від кандидатів.
+     *
+     * Якщо ділянку не прив'язано до точки на местності, геометрії немає —
+     * об'єкт іде з `geometry: null` і кілометражем у властивостях (RFC 7946
+     * такий запис допускає).
      */
     private fun geometryFor(cluster: ai.roadscan.core.geo.DefectCluster): String {
+        if (!cluster.hasGeometry) return "null"
         if (cluster.polygon.size >= 3) return polygon(cluster.polygon)
         return squareAround(cluster.center, cluster.areaM2)
     }
