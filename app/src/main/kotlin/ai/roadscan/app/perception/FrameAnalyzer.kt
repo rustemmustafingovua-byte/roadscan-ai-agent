@@ -42,6 +42,8 @@ class FrameAnalyzer(
      * отбрасываются до конвертации в Bitmap — это и есть экономия энергии.
      */
     private val visionEnabledProvider: () -> Boolean = { true },
+    /** Снимок находки в момент обнаружения (для ведомости). */
+    private val onDefectPhoto: ((String, Bitmap) -> Unit)? = null,
     private val onFrame: (FrameMetrics) -> Unit = {},
 ) : ImageAnalysis.Analyzer {
 
@@ -80,7 +82,11 @@ class FrameAnalyzer(
                 sensorTimestampMs = captureTimestampMs(image),
                 imageRef = oriented,
             )
-            agentProvider().evaluateFrameAndSensor(frame)
+            val accepted = agentProvider().evaluateFrameAndSensor(frame)
+            // Снимок берём сразу: следующий кадр перезапишет картинку.
+            if (accepted != null) {
+                onDefectPhoto?.invoke(accepted.id, oriented)
+            }
             framesSeen.incrementAndGet()
 
             val now = SystemClock.elapsedRealtime()

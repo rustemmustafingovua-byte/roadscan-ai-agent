@@ -1,5 +1,6 @@
 package ai.roadscan.app.video
 
+import android.graphics.Bitmap
 import ai.roadscan.core.model.FrameData
 import ai.roadscan.core.model.VisionDetection
 import ai.roadscan.core.video.ObservedDefect
@@ -15,17 +16,25 @@ class VideoAnalyzer(
     private val detector: (FrameData) -> List<VisionDetection>,
     private val minConfidence: Float = 0.35f,
 ) {
+    /**
+     * @param onPhoto сохраняет снимок кадра и возвращает путь к файлу.
+     *   Вызывается только когда найдена находка лучше предыдущей по типу.
+     */
     fun analyze(
         decoder: VideoStreamDecoder,
         info: VideoInfo,
         isActive: () -> Boolean = { true },
         onProgress: (Float) -> Unit = {},
+        onPhoto: ((ObservedDefect, Bitmap) -> String?)? = null,
     ): VideoAnalysis {
         val sampleFps = if (info.durationMs <= 180_000) 3f else 2f
         val stepMs = (1_000f / sampleFps).toLong().coerceAtLeast(1)
         val samples = ((info.durationMs / stepMs) + 1).coerceAtLeast(1)
 
         val detections = mutableListOf<ObservedDefect>()
+        val photos = mutableMapOf<Long, String>()
+        // Лучший снимок на тип: перезаписываем, если уверенность выросла.
+        val bestPhotoConfidence = mutableMapOf<ai.roadscan.core.model.DefectType, Float>()
         var index = 0L
         var time = 0L
         val startedAt = android.os.SystemClock.elapsedRealtime()
@@ -47,10 +56,18 @@ class VideoAnalyzer(
                 sensorTimestampMs = time,
                 imageRef = frame,
             )
-            detector(data)
-                .asSequence()
-                .filter { it.confidence >= minConfidence }
-                .forEach { detections += it.toObserved(time) }
+            val found = detector(data).filter { it.confidence >= minConfidence }
+            found.forEach { detections += it.toObserved(time) }
+            val best = found.maxByOrNull { it.confidence }
+            if (onPhoto != null && best != null) {
+                val previous = bestPhotoConfidence[best.type] ?: 0f
+                if (best.confidence > previous) {
+                    onPhoto(best.toObserved(time), frame)?.let { path ->
+                        photos[time] = path
+                        bestPhotoConfidence[best.type] = best.confidence
+                    }
+                }
+            }
             index++
             time += stepMs
             if (index % 5L == 0L) {
@@ -69,6 +86,7 @@ class VideoAnalyzer(
             height = info.height,
             sampledFps = sampleFps,
             detections = detections,
+            photos = photos,
         )
     }
 

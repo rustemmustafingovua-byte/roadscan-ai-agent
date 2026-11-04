@@ -86,7 +86,8 @@ class PdfReportGenerator(private val strings: DocStrings = DocStrings.DEFAULT) {
 
         y = summary(writer, report, y, currency)
         y = estimate(writer, report, y + 10f, currency)
-        clusters(writer, report, y + 10f, currency)
+        y = clusters(writer, report, y + 10f, currency)
+        photos(writer, report, y + 12f)
 
         writer.demo = report.meta.demo
         writer.calibrationNote = report.calibration?.let {
@@ -190,6 +191,54 @@ class PdfReportGenerator(private val strings: DocStrings = DocStrings.DEFAULT) {
         return y + 18f
     }
 
+    /**
+     * Снимки находок — подрядчик должен видеть яму, а не только цифры.
+     *
+     * Фото берутся из файлов находок; если файла нет (старая смена), раздел
+     * просто пропускается.
+     */
+    private fun photos(writer: Writer, report: SessionReport, startY: Float): Float {
+        val withPhotos = report.defects.filter { !it.photoPath.isNullOrBlank() }
+        if (withPhotos.isEmpty()) return startY
+
+        var y = startY
+        writer.text(strings.photosTitle, bodyBoldPaint, 40f, y)
+        y += 16f
+
+        for (defect in withPhotos) {
+            val bitmap = decode(defect.photoPath!!) ?: continue
+            val maxWidth = 300f
+            val scale = minOf(maxWidth / bitmap.width, 170f / bitmap.height)
+            val width = bitmap.width * scale
+            val height = bitmap.height * scale
+
+            if (writer.needsNewPage(y, height + 46f)) {
+                writer.newPage()
+                y = 56f
+            }
+
+            writer.text(
+                "${defect.id} · ${strings.defectType(defect.type)} · " +
+                    "%.2f м² · %.0f мм".format(defect.estimatedAreaM2, defect.estimatedDepthMm),
+                bodyBoldPaint,
+                40f,
+                y,
+            )
+            y += 12f
+            writer.box(40f, y, width, height)
+            writer.image(bitmap, 40f, y, width, height)
+            y += height + 10f
+            bitmap.recycle()
+        }
+        return y
+    }
+
+    private fun decode(path: String): android.graphics.Bitmap? = runCatching {
+        java.io.File(path).takeIf { it.exists() }?.let {
+            android.graphics.BitmapFactory.decodeFile(it.absolutePath)
+        }
+    }.getOrNull()
+
     private fun clusters(writer: Writer, report: SessionReport, startY: Float, currency: String): Float {
         var y = startY
         val columns = floatArrayOf(40f, 90f, 200f, 260f, 320f, 380f, 470f, 520f)
@@ -285,6 +334,10 @@ class PdfReportGenerator(private val strings: DocStrings = DocStrings.DEFAULT) {
 
         fun text(text: String, paint: Paint, x: Float, y: Float) {
             canvas.drawText(text, x, y, paint)
+        }
+
+        fun image(bitmap: android.graphics.Bitmap, x: Float, y: Float, width: Float, height: Float) {
+            canvas.drawBitmap(bitmap, null, android.graphics.RectF(x, y, x + width, y + height), null)
         }
 
         fun box(x: Float, y: Float, width: Float, height: Float) {

@@ -85,6 +85,11 @@ class RoadScanRepository(private val dao: RoadScanDao) {
         dao.setReview(defectId, decision.ordinal)
     }
 
+    /** Привязывает снимок находки к записи в базе. */
+    suspend fun setPhoto(defectId: String, path: String) {
+        dao.setPhoto(defectId, path)
+    }
+
     private fun DefectRecord.toEntity() = DefectEntity(
         id = id,
         sessionId = sessionId,
@@ -102,6 +107,7 @@ class RoadScanRepository(private val dao: RoadScanDao) {
         nearField = nearField,
         km = km,
         review = review.ordinal,
+        photoPath = photoPath,
     )
 
     private fun DefectEntity.toRecord(): DefectRecord {
@@ -129,6 +135,7 @@ class RoadScanRepository(private val dao: RoadScanDao) {
             longitude = longitude,
             km = km,
             review = ReviewDecision.entries.getOrElse(review) { ReviewDecision.UNREVIEWED },
+            photoPath = photoPath,
         )
     }
 }

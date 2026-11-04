@@ -291,6 +291,21 @@ class RoadScanAgent(
         return true
     }
 
+    /**
+     * Привязывает снимок находки к записи дефекта.
+     *
+     * Снимок снимается в момент обнаружения: потом кадр уже перезаписан.
+     */
+    @Synchronized
+    fun setPhoto(defectId: String, path: String): Boolean {
+        val index = accepted.indexOfFirst { it.id == defectId }
+        if (index < 0) return false
+        accepted[index] = accepted[index].copy(photoPath = path)
+        val recentIndex = recent.indexOfFirst { it.id == defectId }
+        if (recentIndex >= 0) recent[recentIndex] = accepted[index]
+        return true
+    }
+
     fun onSensorSample(sample: SensorSample) = fusion.addSample(sample)
 
     fun onSensorSamples(samples: Iterable<SensorSample>) = fusion.addSamples(samples)

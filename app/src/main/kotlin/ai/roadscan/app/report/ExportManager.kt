@@ -58,10 +58,23 @@ class ExportManager(
                 role = "Геодані для ГІС",
             ),
         )
+        // Снимки находок — часть комплекта: без них ведомость читается
+        // как список чисел, а не как описание повреждений.
+        val photos = report.defects.mapNotNull { defect ->
+            val path = defect.photoPath ?: return@mapNotNull null
+            val file = java.io.File(path)
+            if (!file.exists()) return@mapNotNull null
+            ai.roadscan.core.report.PackageFile(
+                name = "photos/${defect.id}.jpg",
+                content = file.readBytes(),
+                role = "Снимок нахідки ${defect.id}",
+            )
+        }
+
         return ai.roadscan.core.report.PackageBuilder.build(
             sessionId = report.sessionId,
             meta = report.meta,
-            files = files,
+            files = files + photos,
         )
     }
 

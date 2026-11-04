@@ -159,6 +159,20 @@ class VideoSurveyTest {
     }
 
     @Test
+    fun `records carry the session id given by the caller`() {
+        // Регресс: смена и записи дефектов разошлись по id, и ведомость
+        // открывалась пустой.
+        val result = VideoSurveyPlanner.plan(
+            analysis = analysis(observed(1_000), observed(1_333), observed(1_666)),
+            section = RoadSection(kmFrom = 1.0, kmTo = 2.0),
+        )
+        val records = VideoSurveyPlanner.toRecords(result, "SUR-TEST")
+        assertEquals(1, records.size)
+        assertEquals("SUR-TEST", records.single().sessionId)
+        assertTrue(result.all { it.toRecord("SUR-TEST").sessionId == "SUR-TEST" })
+    }
+
+    @Test
     fun `record conversion keeps confirmation status`() {
         val result = VideoSurveyPlanner.plan(
             analysis = analysis(observed(1_000), observed(1_333), observed(1_666)),

@@ -54,6 +54,8 @@ data class SurveyDefect(
     val type: DefectType,
     /** Начало присутствия дефекта в ролике, мс. */
     val startMs: Long,
+    /** Момент кадра с максимальной уверенностью — по нему берётся снимок. */
+    val peakMs: Long,
     /** Конец присутствия, мс. */
     val endMs: Long,
     /** Километраж по оси участка. */
@@ -69,6 +71,8 @@ data class SurveyDefect(
     val severity: Int,
     val lat: Double?,
     val lon: Double?,
+    /** Снимок находки (из кадров, разобранных при анализе). */
+    val photoPath: String? = null,
 ) {
     /** Запись дефекта в общем формате — для кластеризации и сметы. */
     fun toRecord(sessionId: String): DefectRecord = DefectRecord(
@@ -90,6 +94,7 @@ data class SurveyDefect(
         impactG = 0f,
         nearField = box.bottom >= 0.55f,
         km = km,
+        photoPath = photoPath,
     )
 }
 
@@ -162,6 +167,7 @@ object VideoSurveyPlanner {
                 id = "VID-${index.toString().padStart(3, '0')}",
                 type = peak.type,
                 startMs = group.startMs,
+                peakMs = group.peak.timeMs,
                 endMs = group.endMs,
                 km = km,
                 confidence = peak.confidence,
@@ -173,8 +179,31 @@ object VideoSurveyPlanner {
                 severity = severityOf(peak.type, peak.confidence, area),
                 lat = position?.first,
                 lon = position?.second,
+                photoPath = photoFor(analysis, peak.timeMs),
             )
         }.sortedBy { it.startMs }
+    }
+
+    /**
+     * Записи дефектов для базы и сметы.
+     *
+     * Идентификатор смены задаётся здесь же: записи и сама смена обязаны
+     * нести один id, иначе ведомость откроется пустой (дефекты «прячутся»
+     * в чужой смене).
+     */
+    fun toRecords(defects: List<SurveyDefect>, sessionId: String): List<ai.roadscan.core.model.DefectRecord> =
+        defects.map { it.toRecord(sessionId) }
+
+    /**
+     * Снимок, ближайший к моменту пика.
+     *
+     * Снимки снимаются по ходу анализа, поэтому берём ближайший по времени —
+     * он и показывает дефект.
+     */
+    private fun photoFor(analysis: VideoAnalysis, peakMs: Long): String? {
+        if (analysis.photos.isEmpty()) return null
+        val closest = analysis.photos.minByOrNull { (it.key - peakMs).let { d -> if (d < 0) -d else d } }
+        return closest?.value
     }
 
     /** Сводный результат обследования: дефекты + счётчики. */

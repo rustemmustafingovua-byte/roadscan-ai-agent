@@ -17,6 +17,8 @@ interface DocStrings {
 
     // --- шапка и подписи ---
     val reportTitle: String
+    /** Заголовок раздела со снимками находок. */
+    val photosTitle: String
     val sessionLabel: String
     val objectLabel: String
     val roadLabel: String
@@ -107,6 +109,7 @@ interface DocStrings {
         override val locale = "uk"
 
         override val reportTitle = "Відомість дефектів RoadScan AI"
+        override val photosTitle = "ФОТО НАХОДОК"
         override val sessionLabel = "Сесія"
         override val objectLabel = "Об'єкт"
         override val roadLabel = "Дорога, км"
@@ -203,6 +206,7 @@ interface DocStrings {
         override val locale = "ru"
 
         override val reportTitle = "Ведомость дефектов RoadScan AI"
+        override val photosTitle = "ФОТО НАХОДОК"
         override val sessionLabel = "Сессия"
         override val objectLabel = "Объект"
         override val roadLabel = "Дорога, км"

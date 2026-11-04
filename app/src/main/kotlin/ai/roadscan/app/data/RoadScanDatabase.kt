@@ -64,6 +64,8 @@ data class DefectEntity(
      * Хранится числом, чтобы не тянуть enum-конвертер Room.
      */
     val review: Int = 0,
+    /** Путь к снимку находки в файлах приложения. */
+    val photoPath: String? = null,
 )
 
 @Dao
@@ -95,11 +97,14 @@ interface RoadScanDao {
 
     @Query("UPDATE defects SET review = :review WHERE id = :defectId")
     suspend fun setReview(defectId: String, review: Int)
+
+    @Query("UPDATE defects SET photoPath = :path WHERE id = :defectId")
+    suspend fun setPhoto(defectId: String, path: String)
 }
 
 @Database(
     entities = [SessionEntity::class, DefectEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class RoadScanDatabase : RoomDatabase() {
@@ -118,6 +123,13 @@ abstract class RoadScanDatabase : RoomDatabase() {
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE defects ADD COLUMN km REAL")
+            }
+        }
+
+        /** v5: снимок находки для ведомости. */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE defects ADD COLUMN photoPath TEXT")
             }
         }
 

@@ -34,6 +34,7 @@ class AppContainer(application: Application) {
             RoadScanDatabase.MIGRATION_1_2,
             RoadScanDatabase.MIGRATION_2_3,
             RoadScanDatabase.MIGRATION_3_4,
+            RoadScanDatabase.MIGRATION_4_5,
         )
         .fallbackToDestructiveMigration()
         .build()

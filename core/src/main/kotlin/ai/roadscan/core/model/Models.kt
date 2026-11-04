@@ -232,6 +232,8 @@ data class DefectRecord(
     val km: Double? = null,
     /** Решение оператора по находке. */
     val review: ReviewDecision = ReviewDecision.UNREVIEWED,
+    /** Путь к снимку находки в файлах приложения (для ведомости и комплекта). */
+    val photoPath: String? = null,
 ) {
     /**
      * Попадает ли дефект в смету.

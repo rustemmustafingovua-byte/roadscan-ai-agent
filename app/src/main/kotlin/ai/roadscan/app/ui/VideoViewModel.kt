@@ -99,6 +99,7 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
 
     private val container = (application as RoadScanApp).container
     private val detectorLazy = lazy { YoloV8Detector(application) }
+    private val photoStore = ai.roadscan.app.perception.DefectPhotoStore(application)
     private var job: Job? = null
     private var lastPercent = -1
 
@@ -389,6 +390,9 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
 
         job = viewModelScope.launch(Dispatchers.Default) {
             val records = mutableListOf<ai.roadscan.core.model.DefectRecord>()
+            // Идентификатор смены создаём до анализа: записи дефектов и сама
+            // смена должны нести один id, иначе ведомость откроется пустой.
+            val sessionId = "SUR-" + System.currentTimeMillis().toString().takeLast(8)
             var done = 0
             for (item in queue) {
                 if (!isActive) throw CancellationException("survey cancelled")
@@ -415,6 +419,11 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
                                     labelRes = R.string.video_stage_analyze,
                                 )
                             },
+                            onPhoto = { detection, bitmap ->
+                                // Снимок из уже разобранного кадра: отдельный проход
+                                // по ролику ради картинки стоил бы десятков секунд.
+                                photoStore.save("t${detection.timeMs}", bitmap)
+                            },
                         )
                     } finally {
                         decoder.close()
@@ -424,11 +433,17 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
                         analysis = analysis,
                         section = section,
                         calibration = calibration,
+                        // Глубину в видео не измерить: берём базовую из
+                        // калибровки — ту же, что и для визуальных находок.
+                        config = ai.roadscan.core.video.SurveyConfig(
+                            assumedDepthMm = calibration.depthBaseMm,
+                        ),
                         width = info.width,
                         height = info.height,
-                        sessionId = "SURVEY-${item.id}",
+                        sessionId = sessionId,
                     )
-                    records += defects.map { it.toRecord("SURVEY-${item.id}") }
+                    // Снимок находки подставлен планером из разобранных кадров.
+                    records += VideoSurveyPlanner.toRecords(defects, sessionId)
                     updateQueueItem(item.id) {
                         it.copy(
                             state = SurveyItemState.DONE,
@@ -457,7 +472,6 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
 
             if (!isActive) throw CancellationException("survey cancelled")
 
-            val sessionId = "SUR-" + System.currentTimeMillis().toString().takeLast(8)
             val sessionMeta = meta.copy(demo = !license.isLicensed(System.currentTimeMillis()))
             val report = PostProcessingAgent(calibration.applyTo(container.config), container.priceCatalog)
                 .process(

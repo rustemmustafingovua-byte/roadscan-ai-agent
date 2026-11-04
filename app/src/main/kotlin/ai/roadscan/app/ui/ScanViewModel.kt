@@ -151,6 +151,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private val exports = ExportManager(application, docStrings)
 
     private val location = LocationCollector(application)
+    private val photoStore = ai.roadscan.app.perception.DefectPhotoStore(application)
     private val telemetry = TelemetryReader(application, location)
     private val sensors = SensorCollector(application, { agent })
 
@@ -169,6 +170,14 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         speedProvider = { location.speedKmh },
         detectionsProvider = { detector.lastDetections },
         visionEnabledProvider = { agent.visionEnabled },
+        onDefectPhoto = { defectId, bitmap ->
+            // Снимок находки: в ведомость и в комплект документов.
+            val path = photoStore.save(defectId, bitmap)
+            if (path != null) {
+                agent.setPhoto(defectId, path)
+                viewModelScope.launch { runCatching { repository.setPhoto(defectId, path) } }
+            }
+        },
         onFrame = { metrics ->
             val now = System.currentTimeMillis()
             // 30 обновлений/с перерисовывать HUD незачем: 8–10 достаточно.
@@ -395,6 +404,15 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
      * оператором попадает, даже если автоматика удар не увидела. Решение
      * сохраняется в базу и переживает перезапуск приложения.
      */
+    /** Привязывает снимок находки (появился сразу после обнаружения). */
+    fun attachPhoto(id: String, path: String) {
+        _state.update { state ->
+            state.copy(
+                defects = state.defects.map { if (it.id == id) it.copy(photoPath = path) else it },
+            )
+        }
+    }
+
     fun setDefectReview(id: String, decision: ReviewDecision) {
         agent.setReview(id, decision)
         _state.update { state ->

@@ -21,6 +21,13 @@ data class VideoAnalysis(
     val height: Int,
     val sampledFps: Float,
     val detections: List<ObservedDefect>,
+    /**
+     * Снимки находок: момент времени в ролике -> путь к файлу.
+     *
+     * Снимок берётся из кадра, который уже разобран при анализе: отдельный
+     * проход по ролику ради картинки стоил бы десятков секунд.
+     */
+    val photos: Map<Long, String> = emptyMap(),
 ) {
     val isEmpty: Boolean get() = detections.isEmpty()
 }
