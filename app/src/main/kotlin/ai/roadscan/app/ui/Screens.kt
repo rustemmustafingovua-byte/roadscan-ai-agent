@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Help
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -182,6 +183,12 @@ fun RoadScanRoot(
                     icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
                     label = { Text(stringResource(R.string.nav_settings)) },
                 )
+                NavigationBarItem(
+                    selected = tab == 4,
+                    onClick = { tab = 4 },
+                    icon = { Icon(Icons.Filled.Help, contentDescription = null) },
+                    label = { Text(stringResource(R.string.nav_help)) },
+                )
             }
         },
     ) { padding ->
@@ -231,6 +238,8 @@ fun RoadScanRoot(
                 onSetPeriod = viewModel::setPeriod,
                 padding = padding,
             )
+
+            4 -> HelpScreen(padding = padding)
 
             else -> SettingsScreen(
                 state = state,
@@ -807,6 +816,67 @@ internal fun defectTypeName(type: DefectType): String = stringResource(
         DefectType.UNKNOWN -> R.string.type_unknown
     },
 )
+
+/**
+ * Офлайн-справка оператора: порядок работы, приёмка, настройки, советы.
+ * Всё локально — работает без сети на любом телефоне.
+ */
+@Composable
+private fun HelpScreen(padding: PaddingValues) {
+    val sections = listOf(
+        R.string.help_quick to R.string.help_quick_body,
+        R.string.help_video to R.string.help_video_body,
+        R.string.help_accept to R.string.help_accept_body,
+        R.string.help_settings to R.string.help_settings_body,
+        R.string.help_tips to R.string.help_tips_body,
+    )
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Column {
+                Text(
+                    stringResource(R.string.nav_help),
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    stringResource(R.string.help_subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        items(sections) { (titleRes, bodyRes) ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Text(
+                        stringResource(titleRes),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        stringResource(bodyRes),
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+        }
+    }
+}
 
 // --- отчёт ---
 
