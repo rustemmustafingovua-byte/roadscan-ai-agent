@@ -51,6 +51,10 @@
     <string name="report_metric_dupes">Дублікатів об\'єднано</string>
     <string name="report_metric_latency">Затримка кадру</string>
     <string name="report_metric_latency_value">%1$.1f мс</string>
+    <string name="archive_period_all">Увесь час</string>
+    <string name="archive_period_day">За добу</string>
+    <string name="archive_period_week">За тиждень</string>
+    <string name="archive_period_month">За місяць</string>
     <string name="archive_structure_title">Структура дефектів (усі завершені зміни)</string>
     <string name="compare_hint">Обрано %1$d із 2 змін — оберіть другу для порівняння</string>
     <string name="compare_working">Порівнюємо два обстеження…</string>

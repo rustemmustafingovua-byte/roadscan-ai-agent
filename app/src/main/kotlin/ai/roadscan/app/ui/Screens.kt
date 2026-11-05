@@ -228,6 +228,7 @@ fun RoadScanRoot(
                 onDeleteSession = viewModel::deleteSession,
                 onExportArchive = viewModel::exportArchive,
                 onExportComparePdf = viewModel::exportComparePdf,
+                onSetPeriod = viewModel::setPeriod,
                 padding = padding,
             )
 
@@ -819,12 +820,19 @@ private fun ReportScreen(
     onDeleteSession: (SessionEntity) -> Unit,
     onExportArchive: () -> Unit,
     onExportComparePdf: () -> Unit,
+    onSetPeriod: (Long?) -> Unit,
     padding: PaddingValues,
 ) {
     val report = state.report
     val currency = state.currencySymbol
     // Кого удалить: долгое нажатие на строке смены → подтверждение.
     var deleteTarget by remember { mutableStateOf<SessionEntity?>(null) }
+    // Смены выбранного периода: сводка, структура и список — один фильтр.
+    val sessions = remember(state.sessions, state.periodFromMs, state.periodToMs) {
+        val from = state.periodFromMs ?: return@remember state.sessions
+        val to = state.periodToMs ?: Long.MAX_VALUE
+        state.sessions.filter { it.startedAtMs in from..to }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -881,7 +889,13 @@ private fun ReportScreen(
             item { StatsCard(report) }
         }
 
-        item { ArchiveCard(state.sessions, state.archiveTypes, currency) }
+        item {
+            PeriodChips(
+                selectedHours = state.periodHoursBack,
+                onSelect = onSetPeriod,
+            )
+        }
+        item { ArchiveCard(sessions, state.archiveTypes, currency) }
 
         // Выбор двух смен для сравнения «до/после» (приёмка ремонта).
         if (state.compareIds.isNotEmpty() && state.delta == null) {
@@ -910,18 +924,18 @@ private fun ReportScreen(
                 modifier = Modifier.padding(top = 8.dp),
             ) {
                 Text(
-                    stringResource(R.string.report_sessions, state.sessions.size),
+                    stringResource(R.string.report_sessions, sessions.size),
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f),
                 )
-                if (state.sessions.any { it.endedAtMs > 0L && !it.id.startsWith("DEMO") }) {
+                if (sessions.any { it.endedAtMs > 0L && !it.id.startsWith("DEMO") }) {
                     TextButton(onClick = onExportArchive, enabled = !state.busy) {
                         Text(stringResource(R.string.archive_export), fontSize = 11.sp)
                     }
                 }
             }
         }
-        items(state.sessions, key = { it.id }) { session ->
+        items(sessions, key = { it.id }) { session ->
             SessionRow(
                 session,
                 currency,
@@ -1396,6 +1410,49 @@ private fun ArchiveCard(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = color,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Фильтр периода архива: весь архив / за добу / за тиждень / за місяць.
+ * Пресеты, а не календарь — работает офлайн и не требует выбора дат.
+ */
+@Composable
+private fun PeriodChips(selectedHours: Long?, onSelect: (Long?) -> Unit) {
+    val presets = listOf(
+        null to R.string.archive_period_all,
+        24L to R.string.archive_period_day,
+        24L * 7 to R.string.archive_period_week,
+        24L * 30 to R.string.archive_period_month,
+    )
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.padding(bottom = 4.dp),
+    ) {
+        presets.forEach { (hours, labelRes) ->
+            val selected = hours == selectedHours
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                    )
+                    .clickable { onSelect(hours) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    stringResource(labelRes),
+                    fontSize = 11.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
             }
         }

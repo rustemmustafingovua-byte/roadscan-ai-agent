@@ -47,6 +47,10 @@
     <string name="report_metric_dupes">Дубликатов слито</string>
     <string name="report_metric_latency">Задержка кадра</string>
     <string name="report_metric_latency_value">%1$.1f мс</string>
+    <string name="archive_period_all">Весь период</string>
+    <string name="archive_period_day">За сутки</string>
+    <string name="archive_period_week">За неделю</string>
+    <string name="archive_period_month">За месяц</string>
     <string name="archive_structure_title">Структура дефектов (все завершённые смены)</string>
     <string name="compare_hint">Выбрано %1$d из 2 смен — выберите вторую для сравнения</string>
     <string name="compare_working">Сравниваем два обследования…</string>

@@ -78,6 +78,11 @@ data class UiState(
     val events: List<String> = emptyList(),
     val report: SessionReport? = null,
     val sessions: List<SessionEntity> = emptyList(),
+    /** Границы периода архива включительно; null — весь архив. */
+    val periodFromMs: Long? = null,
+    val periodToMs: Long? = null,
+    /** Выбранный пресет периода (часы); null — весь архив. */
+    val periodHoursBack: Long? = null,
     /** Структура дефектов архива: тип → сколько (по завершённым сменам). */
     val archiveTypes: List<Pair<ai.roadscan.core.model.DefectType, Int>> = emptyList(),
     /** Выбранные для сравнения «до/после» смены (максимум две). */
@@ -256,13 +261,44 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Обновляет структуру дефектов архива (тип → сколько) для сводки. */
     private suspend fun refreshArchiveTypes() {
+        val state = _state.value
         val types = withContext(Dispatchers.IO) {
-            runCatching { repository.archiveTypeCounts() }.getOrDefault(emptyList())
+            runCatching {
+                repository.archiveTypeCounts(
+                    fromMs = state.periodFromMs ?: 0L,
+                    toMs = state.periodToMs ?: Long.MAX_VALUE,
+                )
+            }.getOrDefault(emptyList())
         }.sortedByDescending { it.second }
         _state.update { state ->
             if (state.archiveTypes == types) state
             else state.copy(archiveTypes = types)
         }
+    }
+
+    /**
+     * Период архива: [hoursBack] — часы от текущего момента (null — весь
+     * архив). Сводка и структура дефектов пересчитываются на периоде.
+     */
+    fun setPeriod(hoursBack: Long?) {
+        val now = System.currentTimeMillis()
+        val from = hoursBack?.let { now - it * 3_600_000L }
+        _state.update {
+            it.copy(
+                periodFromMs = from,
+                periodToMs = if (from == null) null else now,
+                periodHoursBack = hoursBack,
+            )
+        }
+        viewModelScope.launch { refreshArchiveTypes() }
+    }
+
+    /** Смены текущего периода — для списка, сводки и экспорта архива. */
+    fun sessionsInPeriod(): List<SessionEntity> {
+        val state = _state.value
+        val from = state.periodFromMs ?: return state.sessions
+        val to = state.periodToMs ?: Long.MAX_VALUE
+        return state.sessions.filter { it.startedAtMs in from..to }
     }
 
     /**
@@ -397,7 +433,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(message = str(R.string.msg_feature_unavailable, "PDF")) }
             return
         }
-        val sessions = _state.value.sessions.filter {
+        val sessions = sessionsInPeriod().filter {
             it.endedAtMs > 0L && !it.id.startsWith("DEMO")
         }
         if (sessions.isEmpty()) {

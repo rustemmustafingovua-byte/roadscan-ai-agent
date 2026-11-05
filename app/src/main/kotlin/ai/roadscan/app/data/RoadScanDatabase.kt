@@ -99,9 +99,10 @@ interface RoadScanDao {
     @Query(
         "SELECT defects.type AS type, COUNT(*) AS cnt FROM defects " +
             "INNER JOIN sessions ON sessions.id = defects.sessionId " +
-            "WHERE sessions.endedAtMs > 0 GROUP BY defects.type",
+            "WHERE sessions.endedAtMs > 0 AND sessions.startedAtMs >= :fromMs " +
+            "AND sessions.startedAtMs <= :toMs GROUP BY defects.type",
     )
-    suspend fun archiveTypeCounts(): List<TypeCount>
+    suspend fun archiveTypeCounts(fromMs: Long, toMs: Long): List<TypeCount>
 
     /** Удаление смены: сначала дефекты, затем строка смены. */
     @Query("DELETE FROM defects WHERE sessionId = :sessionId")
