@@ -14,10 +14,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
       - name: Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
-      - name: Unit tests (core)
-        run: ./gradlew :core:test --no-daemon --console=plain
+      - name: Unit tests (core + app)
+        run: ./gradlew :core:test :app:testDebugUnitTest --no-daemon --console=plain
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --console=plain
       - name: Upload APK
