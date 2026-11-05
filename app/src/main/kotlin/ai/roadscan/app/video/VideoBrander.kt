@@ -112,6 +112,7 @@ class VideoBrander(
         segmentIndex: Int,
         segmentCount: Int,
         foundSoFar: Int,
+        allEvents: List<BrandedEvent> = emptyList(),
     ) {
         canvas.drawBitmap(frame, null, RectF(0f, 0f, width.toFloat(), height.toFloat()), bitmapPaint)
 
@@ -132,7 +133,56 @@ class VideoBrander(
                 alignRight = centerX < 0.5f,
             )
         }
+        drawDefectTimeline(canvas, sourceTimeMs, sourceDurationMs, allEvents)
         if (demoWatermark) drawWatermark(canvas)
+    }
+
+    /**
+     * Лента находок внизу кадра: маркер каждого дефекта на своём месте
+     * ролика + головка воспроизведения. Даже когда рамка ещё не появилась,
+     * видно, где и сколько повреждений нашла система.
+     */
+    private fun drawDefectTimeline(
+        canvas: Canvas,
+        timeMs: Long,
+        durationMs: Long,
+        allEvents: List<BrandedEvent>,
+    ) {
+        if (allEvents.isEmpty() || durationMs <= 0) return
+        val margin = 40f * k
+        val y = height - 58f * k
+        val trackH = 10f * k
+
+        canvas.drawRoundRect(
+            RectF(margin, y, width - margin, y + trackH),
+            trackH / 2,
+            trackH / 2,
+            Paint().apply { color = Color.argb(170, 20, 26, 32) },
+        )
+
+        for (item in allEvents) {
+            val pos = (item.event.peak.timeMs.toFloat() / durationMs).coerceIn(0f, 1f)
+            val x = margin + pos * (width - margin * 2)
+            val color = defectColor(item.event.type)
+            val marker = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+            canvas.drawCircle(x, y + trackH / 2, 7f * k, marker)
+            // Номер находки над маркером — как в ведомости.
+            canvas.drawText(
+                item.id,
+                x - 16f * k,
+                y - 8f * k,
+                paint(color, 17f, bold = true),
+            )
+        }
+
+        // Головка воспроизведения.
+        val pos = (timeMs.toFloat() / durationMs).coerceIn(0f, 1f)
+        val x = margin + pos * (width - margin * 2)
+        val playhead = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = Color.WHITE
+            strokeWidth = 3f * k
+        }
+        canvas.drawLine(x, y - 6f * k, x, y + trackH + 6f * k, playhead)
     }
 
     fun drawIntro(
@@ -293,6 +343,85 @@ class VideoBrander(
         }
     }
 
+    /**
+     * Силуэт повреждения внутри рамки: залитая полупрозрачная форма +
+     * светящийся контур. Смотрится как «подсвеченное пятно», а не квадрат.
+     */
+    private fun drawSilhouette(
+        canvas: Canvas,
+        frame: Bitmap,
+        item: BrandedEvent,
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+        color: Int,
+    ) {
+        val bw = (right - left).toInt()
+        val bh = (bottom - top).toInt()
+        if (bw < 8 || bh < 8) return
+
+        // Маску считаем на малой сетке — до 64 px по стороне.
+        val grid = 48
+        val gw = minOf(grid, bw)
+        val gh = minOf(grid, bh)
+        val crop = runCatching {
+            Bitmap.createScaledBitmap(
+                Bitmap.createBitmap(
+                    frame,
+                    (item.event.peak.box.left * frame.width).toInt().coerceIn(0, frame.width - 2),
+                    (item.event.peak.box.top * frame.height).toInt().coerceIn(0, frame.height - 2),
+                    (item.event.peak.box.width * frame.width).toInt().coerceIn(1, frame.width),
+                    (item.event.peak.box.height * frame.height).toInt().coerceIn(1, frame.height),
+                ),
+                gw,
+                gh,
+                true,
+            )
+        }.getOrNull() ?: return
+        val pixels = IntArray(gw * gh)
+        crop.getPixels(pixels, 0, gw, 0, 0, gw, gh)
+        if (crop !== frame) crop.recycle()
+        val luma = IntArray(gw * gh) { i ->
+            val px = pixels[i]
+            ((px shr 16 and 0xFF) * 3 + (px shr 8 and 0xFF) * 6 + (px and 0xFF)) / 10
+        }
+        val mask = ai.roadscan.core.video.DefectSilhouette.mask(luma, gw, gh, item.event.type)
+
+        // Рисуем маску как столбцы прозрачного цвета — форма читается сразу.
+        val fill = Paint().apply {
+            this.color = (color and 0x00FFFFFF) or (0x55 shl 24)
+        }
+        val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 2.5f * k
+            this.color = (color and 0x00FFFFFF) or (0xAA shl 24)
+        }
+        val cellW = (right - left) / gw
+        val cellH = (bottom - top) / gh
+        for (gy in 0 until gh) {
+            var runStart = -1
+            for (gx in 0..gw) {
+                val on = gx < gw && mask[gy * gw + gx]
+                if (on && runStart < 0) runStart = gx
+                if (!on && runStart >= 0) {
+                    val x0 = left + runStart * cellW
+                    val x1 = left + gx * cellW
+                    val y0 = top + gy * cellH
+                    canvas.drawRect(x0, y0, x1, y0 + cellH, fill)
+                    // Контур сверху/снизу прогона — лёгкая обводка формы.
+                    if (gy == 0 || !mask[(gy - 1) * gw + runStart]) {
+                        canvas.drawLine(x0, y0, x1, y0, glow)
+                    }
+                    if (gy == gh - 1 || !mask[(gy + 1) * gw + runStart]) {
+                        canvas.drawLine(x0, y0 + cellH, x1, y0 + cellH, glow)
+                    }
+                    runStart = -1
+                }
+            }
+        }
+    }
+
     private fun drawDetection(canvas: Canvas, frame: Bitmap, item: BrandedEvent) {
         val box = item.event.peak.box
         val left = box.left * width
@@ -300,6 +429,8 @@ class VideoBrander(
         val right = box.right * width
         val bottom = box.bottom * height
         val color = defectColor(item.event.type)
+
+        drawSilhouette(canvas, frame, item, left, top, right, bottom, color)
 
         canvas.drawRect(left, top, right, bottom, Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE

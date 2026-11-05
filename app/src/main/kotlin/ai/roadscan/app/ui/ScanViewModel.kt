@@ -16,6 +16,7 @@ import ai.roadscan.app.location.LocationCollector
 import ai.roadscan.app.perception.FrameAnalyzer
 import ai.roadscan.app.perception.OverlayDetection
 import ai.roadscan.app.perception.SensorCollector
+import ai.roadscan.app.perception.RoadMaskSegmenter
 import ai.roadscan.app.perception.YoloV8Detector
 import ai.roadscan.app.report.ExportManager
 import ai.roadscan.app.report.ReportFormat
@@ -141,7 +142,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private var meta: ReportMeta = settings.reportMeta()
     private var license: LicenseState = settings.licenseState()
 
-    private val detector = YoloV8Detector(application)
+    private val roadMask = RoadMaskSegmenter(application)
+    private val detector = YoloV8Detector(application, roadMask = roadMask)
 
     /** Агент пересобирается при изменении калибровки — без перезапуска приложения. */
     private var agent: RoadScanAgent = buildAgent(calibration)
@@ -785,6 +787,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         sensors.stop()
         location.stop()
         detector.close()
+        roadMask.close()
         tts?.stop()
         tts?.shutdown()
         tts = null

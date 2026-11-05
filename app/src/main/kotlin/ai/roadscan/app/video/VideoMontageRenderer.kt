@@ -89,6 +89,11 @@ class VideoMontageRenderer(
             }
             introCard.recycle()
 
+            val allBranded = plan.segments
+                .flatMap { it.events }
+                .sortedBy { it.peak.timeMs }
+                .map { BrandedEvent(it, ids[it] ?: "D-000") }
+
             plan.segments.forEachIndexed { index, segment ->
                 val branded = segment.events.map { BrandedEvent(it, ids[it] ?: "D-000") }
                 val frames = framesFor(segment.durationMs)
@@ -130,6 +135,7 @@ class VideoMontageRenderer(
                         } else {
                             foundSoFar
                         },
+                        allEvents = allBranded,
                     )
                     encoder.encode(canvasBitmap)
                     done++

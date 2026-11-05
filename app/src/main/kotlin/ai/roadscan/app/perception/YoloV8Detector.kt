@@ -11,6 +11,7 @@ import ai.roadscan.core.model.BoundingBox
 import ai.roadscan.core.model.DefectType
 import ai.roadscan.core.model.FrameData
 import ai.roadscan.core.model.VisionDetection
+import ai.roadscan.core.perception.RoadSurfaceFilter
 import android.os.Build
 import org.tensorflow.lite.Interpreter
 import java.io.Closeable
@@ -46,6 +47,8 @@ class YoloV8Detector(
      */
     inputSize: Int? = null,
     numThreads: Int = 4,
+    /** Маска дорожного полотна для привязки детекций к дороге (null — без неё). */
+    private val roadMask: RoadMaskSegmenter? = null,
 ) : VisionDetector, Closeable {
 
     /** Чем реально считает интерпретатор. */
@@ -105,6 +108,44 @@ class YoloV8Detector(
     }
 
     /** Разрешение входа модели по её тензору. */
+    /**
+     * Отбраковка находок, не привязанных к проезжей части: рамка вне маски
+     * дороги, «яма» на разметке, гладкое пятно без текстуры и т.п.
+     * Причины пишутся в лог — по ним видно, что именно отсекается.
+     */
+    private fun rejectOffRoad(detections: MutableList<VisionDetection>, bitmap: Bitmap) {
+        if (detections.isEmpty() || roadMask == null) return
+        val width = min(bitmap.width, 480)
+        val height = max(1, bitmap.height * width / bitmap.width)
+        val small = Bitmap.createScaledBitmap(bitmap, width, height, true)
+        val argb = IntArray(width * height)
+        small.getPixels(argb, 0, width, 0, 0, width, height)
+        if (small !== bitmap) small.recycle()
+        val gray = RoadSurfaceFilter.grayscale(argb, width, height)
+        val integral = RoadSurfaceFilter.integral(gray, width, height)
+        val mask = roadMask.roadMask(bitmap, width, height)
+
+        val iterator = detections.iterator()
+        while (iterator.hasNext()) {
+            val d = iterator.next()
+            val reason = RoadSurfaceFilter.rejectReason(
+                box = d.box,
+                type = d.type,
+                confidence = d.confidence,
+                gray = gray,
+                integral = integral,
+                roadMask = mask,
+                width = width,
+                height = height,
+                checkRoad = mask != null,
+            )
+            if (reason != null) {
+                android.util.Log.d("RoadScanGate", "отсечено: $reason conf=${"%.2f".format(d.confidence)}")
+                iterator.remove()
+            }
+        }
+    }
+
     private fun detectInputSize(interp: Interpreter?): Int {
         val shape = runCatching { interp?.getInputTensor(0)?.shape() }.getOrNull() ?: return DEFAULT_INPUT_SIZE
         if (shape.size != 4) return DEFAULT_INPUT_SIZE
@@ -246,7 +287,7 @@ class YoloV8Detector(
                 if (box.width < 0.01f || box.height < 0.01f) continue
                 detections += VisionDetection(type = type, confidence = bestScore, box = box)
             }
-            nms(detections)
+            nms(detections).toMutableList().also { rejectOffRoad(it, bitmap) }
         }.getOrElse { emptyList() }.also {
             lastLatencyMs = (System.nanoTime() - startedNs) / 1_000_000.0
             lastDetections = it
