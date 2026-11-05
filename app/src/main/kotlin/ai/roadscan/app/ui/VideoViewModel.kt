@@ -98,7 +98,11 @@ data class VideoUiState(
 class VideoViewModel(application: Application) : AndroidViewModel(application) {
 
     private val container = (application as RoadScanApp).container
-    private val detectorLazy = lazy { YoloV8Detector(application) }
+    /** Маска дороги: в видеообследовании тоже режем находки вне полотна. */
+    private val roadMaskLazy = lazy { ai.roadscan.app.perception.RoadMaskSegmenter(application) }
+    private val detectorLazy = lazy {
+        YoloV8Detector(application, roadMask = roadMaskLazy.value)
+    }
     private val photoStore = ai.roadscan.app.perception.DefectPhotoStore(application)
     private var job: Job? = null
     private var lastPercent = -1
@@ -601,6 +605,7 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         job?.cancel()
         if (detectorLazy.isInitialized()) runCatching { detectorLazy.value.close() }
+        if (roadMaskLazy.isInitialized()) runCatching { roadMaskLazy.value.close() }
         deleteResult()
         super.onCleared()
     }
