@@ -864,6 +864,8 @@ private fun ReportScreen(
             item { StatsCard(report) }
         }
 
+        item { ArchiveCard(state.sessions, currency) }
+
         item {
             Text(
                 stringResource(R.string.report_sessions, state.sessions.size),
@@ -1166,6 +1168,85 @@ private fun StatRow(label: String, value: String) {
             modifier = Modifier.weight(1f),
         )
         Text(value, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/**
+ * Сводка по архиву: что накоплено всеми сменами и как меняется
+ * дефектность от смены к смене (рост/спад — сразу видно глазом).
+ */
+@Composable
+private fun ArchiveCard(sessions: List<SessionEntity>, currency: String) {
+    if (sessions.isEmpty()) return
+    val summary = remember(sessions) {
+        ai.roadscan.core.report.ArchiveSummary.of(
+            sessions.map { session ->
+                ai.roadscan.core.report.ArchiveSession(
+                    startedAtMs = session.startedAtMs,
+                    confirmed = session.confirmedCount,
+                    visualOnly = session.visualOnlyCount,
+                    areaM2 = session.totalAreaM2,
+                    cost = session.total,
+                )
+            },
+        )
+    }
+    val date = remember(summary.latestAtMs) {
+        java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale.getDefault())
+            .format(java.util.Date(summary.latestAtMs))
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text(
+                stringResource(R.string.archive_title),
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.height(6.dp))
+            StatRow(
+                stringResource(R.string.archive_sessions_label),
+                stringResource(R.string.archive_sessions_value, summary.sessions),
+            )
+            StatRow(
+                stringResource(R.string.archive_defects_label),
+                stringResource(
+                    R.string.archive_defects_value,
+                    summary.defects,
+                    summary.confirmed,
+                ),
+            )
+            StatRow(
+                stringResource(R.string.archive_area_label),
+                stringResource(R.string.archive_area_value, summary.areaM2, summary.cost, currency),
+            )
+            StatRow(
+                stringResource(R.string.archive_avg_label),
+                stringResource(R.string.archive_avg_value, summary.avgDefects, date),
+            )
+            summary.trendPercent?.let { trend ->
+                Spacer(Modifier.height(4.dp))
+                val color = when {
+                    trend > 0.5 -> Color(0xFFD32F2F)
+                    trend < -0.5 -> Color(0xFF2E7D32)
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
+                val text = when {
+                    trend > 0.5 -> stringResource(R.string.archive_trend_up, trend)
+                    trend < -0.5 -> stringResource(R.string.archive_trend_down, trend)
+                    else -> stringResource(R.string.archive_trend_flat)
+                }
+                Text(
+                    text,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = color,
+                )
+            }
+        }
     }
 }
 
