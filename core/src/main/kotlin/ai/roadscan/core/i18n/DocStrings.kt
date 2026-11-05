@@ -101,7 +101,7 @@ interface DocStrings {
     val resolvedLabel: String get() = "Усунуто"
     val remainingLabel: String get() = "Залишилось"
     val appearedLabel: String get() = "Нових"
-    val compareNoMatch: String get() = "Немає координат — порівняно лише підсумки"
+    val compareNoMatch: String get() = "Немає координат і кілометража — порівняно лише підсумки"
     val byTypeLabel: String get() = "За типами дефектів"
     val typeLabel: String get() = "Тип"
 
@@ -296,7 +296,7 @@ interface DocStrings {
         override val resolvedLabel = "Устранено"
         override val remainingLabel = "Осталось"
         override val appearedLabel = "Новых"
-        override val compareNoMatch = "Нет координат — сравнены только итоги"
+        override val compareNoMatch = "Нет координат и километража — сравнены только итоги"
         override val byTypeLabel = "По типам дефектов"
         override val typeLabel = "Тип"
 

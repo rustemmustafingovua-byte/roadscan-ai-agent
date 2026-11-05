@@ -59,6 +59,13 @@ object SessionDiff {
     /** Радиус сопоставления: погрешность двух проездов с GPS. */
     const val MATCH_RADIUS_M = 5.0
 
+    /**
+     * Радиус для проездов без GPS: километраж видео-участка считается
+     * из позиции в ролике и грубо ошибается (десятки метров), поэтому
+     * 5 м по км склеивали бы разные дефекты — берём 30 м.
+     */
+    const val MATCH_RADIUS_KM_M = 30.0
+
     fun of(
         before: SurveySide,
         after: SurveySide,
@@ -66,23 +73,33 @@ object SessionDiff {
     ): SessionDelta {
         val b = before.defects
         val a = after.defects
+        val all = b + a
 
-        // Матчинг возможен, только если у всех находок есть координаты:
-        // иначе «устранил/остался» был бы выдумкой по неполным данным.
-        val allGeo = (b + a).isNotEmpty() && (b + a).all { it.latitude != null && it.longitude != null }
+        // Два честных режима сопоставления: по координатам (GPS) или
+        // по километражу (видео-участок без GPS). Смешанный случай —
+        // у кого-то нет ни того, ни другого — сопоставление выключено,
+        // иначе «устранено/новых» было бы выдумкой по неполным данным.
+        val allGeo = all.isNotEmpty() && all.all { it.latitude != null && it.longitude != null }
+        val allKm = all.isNotEmpty() && all.all { it.km != null }
+        val matched = allGeo || allKm
 
         var resolved: Int? = null
         var remaining: Int? = null
         var appeared: Int? = null
-        if (allGeo) {
+        if (matched) {
+            val limit = if (allGeo) radiusM else MATCH_RADIUS_KM_M
             val pairs = mutableListOf<Triple<Double, DefectRecord, DefectRecord>>()
             b.forEach { old ->
-                val oldPoint = GeoPoint(old.latitude!!, old.longitude!!)
                 a.forEach { fresh ->
                     if (fresh.type != old.type) return@forEach
-                    val freshPoint = GeoPoint(fresh.latitude!!, fresh.longitude!!)
-                    val distance = GeoMath.distanceMeters(oldPoint, freshPoint)
-                    if (distance <= radiusM) pairs += Triple(distance, old, fresh)
+                    val distance = when {
+                        allGeo -> GeoMath.distanceMeters(
+                            GeoPoint(old.latitude!!, old.longitude!!),
+                            GeoPoint(fresh.latitude!!, fresh.longitude!!),
+                        )
+                        else -> kotlin.math.abs(old.km!! - fresh.km!!) * 1_000.0
+                    }
+                    if (distance <= limit) pairs += Triple(distance, old, fresh)
                 }
             }
             val takenOld = mutableSetOf<String>()
@@ -125,7 +142,7 @@ object SessionDiff {
             resolved = resolved,
             remaining = remaining,
             appeared = appeared,
-            matched = allGeo,
+            matched = matched,
             changePercent = change,
             byType = byType,
         )

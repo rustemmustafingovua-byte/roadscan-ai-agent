@@ -92,7 +92,7 @@
     <string name="compare_cost">Смета</string>
     <string name="compare_saved">збережено %1$.0f %2$s</string>
     <string name="compare_resolved_line">Усунуто %1$d · залишилось %2$d · нових %3$d</string>
-    <string name="compare_nomatch">У одного з обстежень немає координат — порівняно лише підсумки.</string>
+    <string name="compare_nomatch">Немає координат і кілометража в обох обстеженнях — порівняно лише підсумки.</string>
     <string name="compare_by_type">За типами дефектів</string>
     <string name="compare_pdf">Акт (PDF)</string>
     <string name="compare_done">Готово</string>

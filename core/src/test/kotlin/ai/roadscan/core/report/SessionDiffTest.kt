@@ -21,6 +21,7 @@ class SessionDiffTest {
         lon: Double? = 30.0,
         type: DefectType = DefectType.POTHOLE,
         id: String = "d${nextId++}",
+        km: Double? = null,
     ) = DefectRecord(
         id = id,
         sessionId = "s",
@@ -37,6 +38,7 @@ class SessionDiffTest {
         nearField = true,
         latitude = lat,
         longitude = lon,
+        km = km,
         review = ReviewDecision.UNREVIEWED,
     )
 
@@ -119,6 +121,40 @@ class SessionDiffTest {
         val holes = delta.byType.first { it.type == DefectType.POTHOLE }
         assertEquals(2, holes.before)
         assertEquals(1, holes.after)
+    }
+
+    @Test
+    fun `видео без GPS — сопоставление по километражу`() {
+        // Обе смены сняты на видео: координат km различаются на 10 м.
+        val before = side(defect(lat = null, lon = null, km = 12.400))
+        val after = side(defect(id = "v1", lat = null, lon = null, km = 12.410))
+        val delta = SessionDiff.of(before, after)
+        assertTrue(delta.matched)
+        assertEquals(1, delta.remaining)
+        assertEquals(0, delta.resolved)
+        assertEquals(0, delta.appeared)
+    }
+
+    @Test
+    fun `километраж дальше радиуса — дефект устранён`() {
+        val before = side(defect(lat = null, lon = null, km = 12.400))
+        // 100 м по км — за пределами 30 м.
+        val after = side(defect(id = "v1", lat = null, lon = null, km = 12.500))
+        val delta = SessionDiff.of(before, after)
+        assertTrue(delta.matched)
+        assertEquals(0, delta.remaining)
+        assertEquals(1, delta.resolved)
+        assertEquals(1, delta.appeared)
+    }
+
+    @Test
+    fun `смешанный случай — без координат и км матчинг выключен`() {
+        val before = side(defect(lat = null, lon = null, km = 12.400))
+        // У нового дефекта нет ни координат, ни километража.
+        val after = side(defect(id = "v1", lat = null, lon = null, km = null))
+        val delta = SessionDiff.of(before, after)
+        assertFalse(delta.matched)
+        assertNull(delta.resolved)
     }
 
     @Test
