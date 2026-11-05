@@ -241,6 +241,7 @@ fun RoadScanRoot(
                 onAutoSetup = viewModel::runAutoSetup,
                 onBackup = viewModel::backupData,
                 onRestore = viewModel::restoreBackup,
+                onSavePrices = viewModel::savePrices,
                 padding = padding,
             )
         }

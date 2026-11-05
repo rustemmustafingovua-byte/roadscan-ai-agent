@@ -28,6 +28,19 @@ data class PriceCatalog(
     fun item(code: String): PriceItem =
         items.firstOrNull { it.code == code } ?: error("No price for code $code")
 
+    /**
+     * Каталог с правками оператора (свои расценки по договору):
+     * [overrides] — код → новая цена; неизвестные коды и нечисловые
+     * значения игнорируются, валюта/НДС/структура не меняются.
+     */
+    fun withOverrides(overrides: Map<String, Double>): PriceCatalog = copy(
+        items = items.map { item ->
+            val price = overrides[item.code]
+            if (price != null && price.isFinite() && price >= 0.0) item.copy(price = price)
+            else item
+        },
+    )
+
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
 

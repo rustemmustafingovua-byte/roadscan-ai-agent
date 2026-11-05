@@ -2,6 +2,7 @@ package ai.roadscan.app.settings
 
 import android.content.Context
 import ai.roadscan.core.calibration.CalibrationProfile
+import kotlinx.serialization.builtins.serializer
 import ai.roadscan.core.license.Edition
 import ai.roadscan.core.license.LicenseCheck
 import ai.roadscan.core.license.LicensePayload
@@ -121,6 +122,30 @@ class SettingsStore(context: Context) {
         return nowMs
     }
 
+    // --- цены работ (свои расценки по договору) ---
+
+    /** Правки каталога: код работы → цена. Пусто — действует ассет. */
+    fun priceOverrides(): Map<String, Double> {
+        val raw = prefs.getString(KEY_PRICES, null) ?: return emptyMap()
+        return runCatching {
+            pricesJson.decodeFromString(
+                kotlinx.serialization.builtins.MapSerializer(
+                    String.serializer(),
+                    Double.serializer(),
+                ),
+                raw,
+            )
+        }.getOrDefault(emptyMap())
+    }
+
+    fun savePriceOverrides(overrides: Map<String, Double>) {
+        val raw = pricesJson.encodeToString(
+            kotlinx.serialization.builtins.MapSerializer(String.serializer(), Double.serializer()),
+            overrides,
+        )
+        prefs.edit().putString(KEY_PRICES, raw).apply()
+    }
+
     private fun editionOf(tier: String): Edition = when (tier.uppercase()) {
         "ENTERPRISE" -> Edition.ENTERPRISE
         "PILOT" -> Edition.PILOT
@@ -135,5 +160,8 @@ class SettingsStore(context: Context) {
         const val KEY_SESSIONS_USED = "trial_sessions_used"
         const val KEY_SESSIONS_TOTAL = "sessions_total"
         const val KEY_FIRST_RUN = "first_run_ms"
+        const val KEY_PRICES = "price_overrides"
+
+        val pricesJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
     }
 }

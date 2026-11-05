@@ -48,8 +48,23 @@ class AppContainer(application: Application) {
 
     val repository = RoadScanRepository(database.dao())
 
-    val priceCatalog: PriceCatalog = runCatching {
+    /** Каталог по умолчанию (ассет поставки). */
+    private val baseCatalog: PriceCatalog = runCatching {
         application.assets.open("price_catalog.json").bufferedReader().use { it.readText() }
             .let(PriceCatalog::fromJson)
     }.getOrDefault(PriceCatalog.DEFAULT)
+
+    /**
+     * Действующий каталог цен: ассет + правки оператора (свои расценки
+     * по договору, хранятся в настройках). var — правка обновляется
+     * на месте, новые отчёты считают сразу по новым ценам.
+     */
+    var priceCatalog: PriceCatalog = baseCatalog.withOverrides(settings.priceOverrides())
+        private set
+
+    /** Сохраняет правки цен: в настройках и в действующем каталоге. */
+    fun updatePrices(overrides: Map<String, Double>) {
+        settings.savePriceOverrides(overrides)
+        priceCatalog = baseCatalog.withOverrides(overrides)
+    }
 }

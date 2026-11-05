@@ -110,6 +110,8 @@ data class UiState(
     val track: List<GeoPoint> = emptyList(),
     /** Сводка по типам дефектов для панели статистики. */
     val summary: List<DefectSummary> = emptyList(),
+    /** Действующий каталог цен (с правками оператора). */
+    val priceCatalog: ai.roadscan.core.estimate.PriceCatalog = ai.roadscan.core.estimate.PriceCatalog.DEFAULT,
     val currencySymbol: String = "₴",
     /**
      * Агент предлагает выбрать режим при низком заряде (ТЗ п. 3.2):
@@ -224,6 +226,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             licenseSummary = license.summary(System.currentTimeMillis(), messages),
             canExport = license.canExport(),
             modelReady = detector.isReady,
+            priceCatalog = container.priceCatalog,
             currencySymbol = docStrings.currencySymbol(container.priceCatalog.currency),
         ),
     )
@@ -1084,6 +1087,14 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 calibration = sessionCalibration ?: calibration,
             )
             _state.update { it.copy(report = report, busy = false) }
+        }
+    }
+
+    /** Сохраняет правки каталога цен (свои расценки по договору). */
+    fun savePrices(overrides: Map<String, Double>) {
+        container.updatePrices(overrides)
+        _state.update {
+            it.copy(priceCatalog = container.priceCatalog, message = str(R.string.prices_saved))
         }
     }
 

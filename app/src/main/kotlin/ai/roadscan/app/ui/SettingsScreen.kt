@@ -78,6 +78,7 @@ fun SettingsScreen(
     onAutoSetup: () -> Unit = {},
     onBackup: () -> Unit = {},
     onRestore: (android.net.Uri) -> Unit = {},
+    onSavePrices: (Map<String, Double>) -> Unit = {},
     padding: PaddingValues,
 ) {
     var legalDoc by remember { mutableStateOf<LegalDoc?>(null) }
@@ -114,6 +115,7 @@ fun SettingsScreen(
             }
             item { DocumentsSection(state.meta, onSaveMeta) }
             item { DataSection(onBackup, onRestore) }
+            item { PricesSection(state.priceCatalog, onSavePrices) }
             item { DemoSection(onLoadDemo) }
             item { LegalSection(onOpen = { legalDoc = it }) }
             item {
@@ -197,6 +199,72 @@ private fun LicenseSection(
                     Text(stringResource(R.string.settings_license_remove))
                 }
             }
+        }
+    }
+}
+
+/**
+ * Цены работ под договор заказчика: правки сохраняются в настройках
+ * и применяются к новым расчётам сметы (валюта и структура — из ассета).
+ */
+@Composable
+private fun PricesSection(
+    catalog: ai.roadscan.core.estimate.PriceCatalog,
+    onSave: (Map<String, Double>) -> Unit,
+) {
+    var draft by remember(catalog) {
+        mutableStateOf(catalog.items.associate { it.code to "%.2f".format(it.price) })
+    }
+
+    SectionCard(stringResource(R.string.settings_prices)) {
+        Text(
+            stringResource(R.string.settings_prices_hint, catalog.currency),
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        catalog.items.forEach { item ->
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(item.name, fontSize = 11.sp, maxLines = 2)
+                    Text(
+                        item.unit,
+                        fontSize = 9.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                OutlinedTextField(
+                    value = draft[item.code] ?: "",
+                    onValueChange = { input ->
+                        val cleaned = input
+                            .filter { ch -> ch.isDigit() || ch == '.' || ch == ',' }
+                            .take(12)
+                        draft = draft + (item.code to cleaned)
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.width(110.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = {
+                onSave(
+                    catalog.items.mapNotNull { item ->
+                        draft[item.code]
+                            ?.replace(',', '.')
+                            ?.toDoubleOrNull()
+                            ?.let { price -> item.code to price }
+                    }.toMap(),
+                )
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.settings_prices_save))
         }
     }
 }

@@ -118,6 +118,10 @@
     <string name="backup_done">Копію створено: %1$s</string>
     <string name="backup_restore_staged">Копію відновлено. Застосунок перезапуститься…</string>
     <string name="backup_error">Не вдалося: %1$s</string>
+    <string name="settings_prices">Ціни робіт</string>
+    <string name="settings_prices_hint">Свої расценки за договором, валюта %1$s. Зміни застосовуються до нових розрахунків смети.</string>
+    <string name="settings_prices_save">Зберегти ціни</string>
+    <string name="prices_saved">Ціни збережено</string>
     <string name="settings_calibration">Калібрування камери</string>
     <string name="settings_calibration_hint">Висота камери над дорогою, нахил униз і фокусна відстань визначають точність площі (ціль ±10–15%).</string>
     <string name="settings_calibration_profile">Профіль</string>
