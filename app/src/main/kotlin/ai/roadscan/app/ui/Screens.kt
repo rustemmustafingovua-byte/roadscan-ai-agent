@@ -2,6 +2,8 @@ package ai.roadscan.app.ui
 
 import android.net.Uri
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -72,6 +74,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -219,6 +222,8 @@ fun RoadScanRoot(
                 state = state,
                 onExport = viewModel::export,
                 onOpenSession = viewModel::openSession,
+                onToggleCompare = viewModel::toggleCompare,
+                onClearCompare = viewModel::clearCompare,
                 padding = padding,
             )
 
@@ -804,6 +809,8 @@ private fun ReportScreen(
     state: UiState,
     onExport: (ReportFormat) -> Unit,
     onOpenSession: (SessionEntity) -> Unit,
+    onToggleCompare: (SessionEntity) -> Unit,
+    onClearCompare: () -> Unit,
     padding: PaddingValues,
 ) {
     val report = state.report
@@ -864,7 +871,28 @@ private fun ReportScreen(
             item { StatsCard(report) }
         }
 
-        item { ArchiveCard(state.sessions, currency) }
+        item { ArchiveCard(state.sessions, state.archiveTypes, currency) }
+
+        // Выбор двух смен для сравнения «до/после» (приёмка ремонта).
+        if (state.compareIds.isNotEmpty() && state.delta == null) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (state.comparing) {
+                            stringResource(R.string.compare_working)
+                        } else {
+                            stringResource(R.string.compare_hint, state.compareIds.size)
+                        },
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onClearCompare) {
+                        Text(stringResource(R.string.compare_cancel), fontSize = 11.sp)
+                    }
+                }
+            }
+        }
 
         item {
             Text(
@@ -874,8 +902,31 @@ private fun ReportScreen(
             )
         }
         items(state.sessions, key = { it.id }) { session ->
-            SessionRow(session, currency, onClick = { onOpenSession(session) })
+            SessionRow(
+                session,
+                currency,
+                onClick = { onOpenSession(session) },
+                selected = state.compareIds.contains(session.id),
+                onToggleCompare = { onToggleCompare(session) },
+            )
         }
+    }
+
+    // Диалог сравнения — по второму выбранному этапу.
+    state.delta?.let { delta ->
+        val dates = state.sessions
+            .filter { it.id in state.compareIds }
+            .sortedBy { it.startedAtMs }
+            .map {
+                SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(it.startedAtMs))
+            }
+        DeltaDialog(
+            delta = delta,
+            beforeDate = dates.getOrNull(0) ?: "",
+            afterDate = dates.getOrNull(1) ?: "",
+            currency = currency,
+            onDismiss = onClearCompare,
+        )
     }
 }
 
@@ -1176,7 +1227,11 @@ private fun StatRow(label: String, value: String) {
  * дефектность от смены к смене (рост/спад — сразу видно глазом).
  */
 @Composable
-private fun ArchiveCard(sessions: List<SessionEntity>, currency: String) {
+private fun ArchiveCard(
+    sessions: List<SessionEntity>,
+    archiveTypes: List<Pair<ai.roadscan.core.model.DefectType, Int>>,
+    currency: String,
+) {
     if (sessions.isEmpty()) return
     val summary = remember(sessions) {
         ai.roadscan.core.report.ArchiveSummary.of(
@@ -1227,6 +1282,58 @@ private fun ArchiveCard(sessions: List<SessionEntity>, currency: String) {
                 stringResource(R.string.archive_avg_label),
                 stringResource(R.string.archive_avg_value, summary.avgDefects, date),
             )
+            // Структура дефектов по типам: какова дорога «по составу болезней».
+            if (archiveTypes.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    stringResource(R.string.archive_structure_title),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                val total = archiveTypes.sumOf { it.second }.coerceAtLeast(1)
+                archiveTypes.forEach { (type, count) ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            defectTypeName(type),
+                            fontSize = 11.sp,
+                            modifier = Modifier.width(88.dp),
+                        )
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                        ) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth(count.toFloat() / total)
+                                    .fillMaxHeight()
+                                    .background(defectColor(type)),
+                            )
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "$count",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.width(34.dp),
+                        )
+                        Text(
+                            "${count * 100 / total}%",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.width(32.dp),
+                        )
+                    }
+                }
+            }
+
             summary.trendPercent?.let { trend ->
                 Spacer(Modifier.height(4.dp))
                 val color = when {
@@ -1250,8 +1357,157 @@ private fun ArchiveCard(sessions: List<SessionEntity>, currency: String) {
     }
 }
 
+/**
+ * Диалог сравнения двух обследований «до/после»: приёмка ремонта.
+ * Устранённые/оставшиеся/новые считаются по геометрии (радиус 5 м);
+ * без координат честно показываем только агрегаты.
+ */
 @Composable
-private fun SessionRow(session: SessionEntity, currency: String, onClick: () -> Unit) {
+private fun DeltaDialog(
+    delta: ai.roadscan.core.report.SessionDelta,
+    beforeDate: String,
+    afterDate: String,
+    currency: String,
+    onDismiss: () -> Unit,
+) {
+    val trendColor = when (ai.roadscan.core.report.SessionDiff.trend(delta)) {
+        ai.roadscan.core.report.SessionDiff.Trend.BETTER -> Good
+        ai.roadscan.core.report.SessionDiff.Trend.WORSE -> Warn
+        ai.roadscan.core.report.SessionDiff.Trend.FLAT,
+        ai.roadscan.core.report.SessionDiff.Trend.UNKNOWN,
+        -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                stringResource(R.string.compare_title, beforeDate, afterDate),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                delta.changePercent?.let { change ->
+                    DeltaRow(
+                        stringResource(R.string.compare_change),
+                        "%+.0f%%".format(change),
+                        valueColor = trendColor,
+                    )
+                }
+                DeltaRow(
+                    stringResource(R.string.compare_defects),
+                    "${delta.defectsBefore} → ${delta.defectsAfter}",
+                    valueColor = trendColor,
+                )
+                DeltaRow(
+                    stringResource(R.string.compare_area),
+                    "%.1f → %.1f м²".format(delta.areaBeforeM2, delta.areaAfterM2),
+                )
+                DeltaRow(
+                    stringResource(R.string.compare_cost),
+                    "%.0f → %.0f %s".format(delta.costBefore, delta.costAfter, currency),
+                )
+                if (delta.costBefore > 0.0 && delta.costSaved > 0.0) {
+                    DeltaRow(
+                        "",
+                        stringResource(R.string.compare_saved, delta.costSaved, currency),
+                        valueColor = Good,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                if (delta.matched) {
+                    Text(
+                        stringResource(
+                            R.string.compare_resolved_line,
+                            delta.resolved ?: 0,
+                            delta.remaining ?: 0,
+                            delta.appeared ?: 0,
+                        ),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                } else {
+                    Text(
+                        stringResource(R.string.compare_nomatch),
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (delta.byType.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        stringResource(R.string.compare_by_type),
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    delta.byType.forEach { item ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(defectColor(item.type)),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                defectTypeName(item.type),
+                                fontSize = 11.sp,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                "${item.before} → ${item.after}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (item.after <= item.before) Good else Warn,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.compare_done))
+            }
+        },
+    )
+}
+
+@Composable
+private fun DeltaRow(
+    label: String,
+    value: String,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface,
+) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 1.5.dp)) {
+        Text(
+            label,
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            value,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = valueColor,
+        )
+    }
+}
+
+@Composable
+private fun SessionRow(
+    session: SessionEntity,
+    currency: String,
+    onClick: () -> Unit,
+    selected: Boolean = false,
+    onToggleCompare: (() -> Unit)? = null,
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         shape = RoundedCornerShape(12.dp),
@@ -1263,6 +1519,36 @@ private fun SessionRow(session: SessionEntity, currency: String, onClick: () -> 
             Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Выбор смены для сравнения «до/после».
+            if (onToggleCompare != null) {
+                Box(
+                    Modifier
+                        .padding(end = 10.dp)
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surface,
+                        )
+                        .border(
+                            1.5.dp,
+                            if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outlineVariant,
+                            CircleShape,
+                        )
+                        .clickable(onClick = onToggleCompare),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (selected) {
+                        Text(
+                            "✓",
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
             Column(Modifier.weight(1f)) {
                 Text(session.id, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 Text(

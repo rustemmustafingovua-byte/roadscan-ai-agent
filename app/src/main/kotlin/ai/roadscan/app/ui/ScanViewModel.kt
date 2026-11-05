@@ -77,6 +77,13 @@ data class UiState(
     val events: List<String> = emptyList(),
     val report: SessionReport? = null,
     val sessions: List<SessionEntity> = emptyList(),
+    /** Структура дефектов архива: тип → сколько (по завершённым сменам). */
+    val archiveTypes: List<Pair<ai.roadscan.core.model.DefectType, Int>> = emptyList(),
+    /** Выбранные для сравнения «до/после» смены (максимум две). */
+    val compareIds: List<String> = emptyList(),
+    /** Результат сравнения двух смен; null — диалог закрыт. */
+    val delta: ai.roadscan.core.report.SessionDelta? = null,
+    val comparing: Boolean = false,
     val modelReady: Boolean = false,
     /** Активный бэкенд инференса: NNAPI или XNNPACK. */
     val inferenceBackend: String = "XNNPACK",
@@ -234,10 +241,99 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             repository.observeSessions().collect { sessions ->
                 _state.update { it.copy(sessions = sessions) }
                 repairInProgress(sessions)
+                refreshArchiveTypes()
             }
         }
         initTts()
         refreshReadiness()
+    }
+
+    /** Обновляет структуру дефектов архива (тип → сколько) для сводки. */
+    private suspend fun refreshArchiveTypes() {
+        val types = withContext(Dispatchers.IO) {
+            runCatching { repository.archiveTypeCounts() }.getOrDefault(emptyList())
+        }.sortedByDescending { it.second }
+        _state.update { state ->
+            if (state.archiveTypes == types) state
+            else state.copy(archiveTypes = types)
+        }
+    }
+
+    /**
+     * Сравнение «до/после»: выбираем две смены (максимум две), по вторым
+     * из них считаем дельту — приёмка ремонта. Порядок выбора не важен:
+     * «до» — всегда более ранняя смена.
+     */
+    fun toggleCompare(session: SessionEntity) {
+        val ids = _state.value.compareIds
+        val next = when {
+            ids.contains(session.id) -> ids - session.id
+            ids.size >= 2 -> listOf(ids.last(), session.id)
+            else -> ids + session.id
+        }
+        _state.update { it.copy(compareIds = next, delta = null) }
+        if (next.size == 2) buildDelta(next)
+    }
+
+    fun clearCompare() {
+        _state.update { it.copy(compareIds = emptyList(), delta = null) }
+    }
+
+    private fun buildDelta(ids: List<String>) {
+        viewModelScope.launch {
+            _state.update { it.copy(comparing = true) }
+            val ordered = _state.value.sessions
+                .filter { session -> session.id in ids }
+                .sortedBy { it.startedAtMs }
+            val result = withContext(Dispatchers.IO) {
+                runCatching { ordered.map { session -> loadSide(session) } }
+            }
+            result.onSuccess { sides ->
+                if (sides.size == 2) {
+                    val delta = ai.roadscan.core.report.SessionDiff.of(sides[0], sides[1])
+                    _state.update { it.copy(comparing = false, delta = delta) }
+                } else {
+                    _state.update {
+                        it.copy(comparing = false, message = str(R.string.compare_error, "—"))
+                    }
+                }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(comparing = false, message = str(R.string.compare_error, error.message ?: ""))
+                }
+            }
+        }
+    }
+
+    /** Сторона сравнения: дефекты + итоги сметы, как для отчёта. */
+    private suspend fun loadSide(session: SessionEntity): ai.roadscan.core.report.SurveySide {
+        val defects = repository.loadDefects(session.id)
+        val (meta, calib) = repository.metaOf(session)
+        val stats = ai.roadscan.core.agent.SessionStats(
+            confirmed = defects.count { it.confirmed },
+            visualOnly = defects.count { !it.confirmed },
+        )
+        val report = ai.roadscan.core.agent.PostProcessingAgent(
+            container.config,
+            container.priceCatalog,
+        ).process(
+            sessionId = session.id,
+            startedAtMs = session.startedAtMs,
+            endedAtMs = if (session.endedAtMs > 0L) {
+                session.endedAtMs
+            } else {
+                System.currentTimeMillis()
+            },
+            defects = defects,
+            stats = stats,
+            meta = meta,
+            calibration = calib,
+        )
+        return ai.roadscan.core.report.SurveySide(
+            defects = defects,
+            areaM2 = report.estimate.totalAreaM2,
+            cost = report.estimate.total,
+        )
     }
 
     /**

@@ -66,6 +66,17 @@ class RoadScanRepository(private val dao: RoadScanDao) {
         dao.saveSession(session, report.defects.map { it.toEntity() })
     }
 
+    /**
+     * Сколько дефектов каждого типа по завершённым сменам архива.
+     * Неизвестные имена (миграции) молча пропускаются.
+     */
+    suspend fun archiveTypeCounts(): List<Pair<ai.roadscan.core.model.DefectType, Int>> =
+        dao.archiveTypeCounts().mapNotNull { row ->
+            runCatching { ai.roadscan.core.model.DefectType.valueOf(row.type) }
+                .getOrNull()
+                ?.let { it to row.cnt }
+        }
+
     /** Реквизиты и калибровка сохранённой смены. */
     fun metaOf(session: SessionEntity): Pair<ai.roadscan.core.report.ReportMeta, ai.roadscan.core.calibration.CalibrationProfile?> =
         ai.roadscan.core.report.ReportMeta.fromJson(session.metaJson) to

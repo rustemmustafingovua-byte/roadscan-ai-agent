@@ -68,6 +68,12 @@ data class DefectEntity(
     val photoPath: String? = null,
 )
 
+/** Строка группировки «тип → сколько» для сводки архива. */
+data class TypeCount(
+    val type: String,
+    val cnt: Int,
+)
+
 @Dao
 interface RoadScanDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -85,6 +91,17 @@ interface RoadScanDao {
 
     @Query("SELECT * FROM sessions ORDER BY startedAtMs DESC")
     fun observeSessions(): Flow<List<SessionEntity>>
+
+    /**
+     * Структура дефектов архива: сколько находок каждого типа
+     * по завершённым сменам (для карточки «Итоги архива»).
+     */
+    @Query(
+        "SELECT defects.type AS type, COUNT(*) AS cnt FROM defects " +
+            "INNER JOIN sessions ON sessions.id = defects.sessionId " +
+            "WHERE sessions.endedAtMs > 0 GROUP BY defects.type",
+    )
+    suspend fun archiveTypeCounts(): List<TypeCount>
 
     @Query("SELECT COUNT(*) FROM sessions")
     fun observeSessionCount(): Flow<Int>
