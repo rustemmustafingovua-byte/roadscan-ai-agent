@@ -20,6 +20,13 @@ class RoadScanApp : Application() {
 
 class AppContainer(application: Application) {
 
+    init {
+        // Восстановление из резервной копии подменяет файлы данных.
+        // Только здесь, до SettingsStore/Room: после открытия подменить
+        // их в работающем процессе уже нельзя.
+        ai.roadscan.app.data.BackupManager.applyPendingRestore(application)
+    }
+
     /** Калибровка, реквизиты документов и лицензия — всё офлайн. */
     val settings = SettingsStore(application)
 

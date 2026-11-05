@@ -231,6 +231,8 @@ fun RoadScanRoot(
                 onLoadDemo = viewModel::loadDemoReport,
                 onRunDiagnostics = viewModel::runDiagnostics,
                 onAutoSetup = viewModel::runAutoSetup,
+                onBackup = viewModel::backupData,
+                onRestore = viewModel::restoreBackup,
                 padding = padding,
             )
         }

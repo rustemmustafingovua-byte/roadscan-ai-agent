@@ -77,6 +77,13 @@
     <string name="settings_license_remove">Видалити ключ</string>
     <string name="settings_autosetup">Автоналаштування</string>
     <string name="settings_autosetup_hint">Оптика камери з характеристик пристрою, нахил із датчика, профіль за заміром швидкості. Поставте телефон у кронштейн і не чіпайте його.</string>
+    <string name="settings_data">Дані</string>
+    <string name="settings_data_hint">Резервна копія: база сесій, смети, відомості, фото та налаштування одним файлом. Відновлення на новому телефоні — з архиву, після чого застосунок перезапуститься.</string>
+    <string name="settings_backup">Резервна копія</string>
+    <string name="settings_restore">Відновити</string>
+    <string name="backup_done">Копію створено: %1$s</string>
+    <string name="backup_restore_staged">Копію відновлено. Застосунок перезапуститься…</string>
+    <string name="backup_error">Не вдалося: %1$s</string>
     <string name="settings_calibration">Калібрування камери</string>
     <string name="settings_calibration_hint">Висота камери над дорогою, нахил униз і фокусна відстань визначають точність площі (ціль ±10–15%).</string>
     <string name="settings_calibration_profile">Профіль</string>

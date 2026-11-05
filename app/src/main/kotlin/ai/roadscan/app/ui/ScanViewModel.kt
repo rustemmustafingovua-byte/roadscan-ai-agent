@@ -3,7 +3,10 @@ package ai.roadscan.app.ui
 import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
+import android.content.ClipData
 import android.content.Intent
+import android.net.Uri
+import androidx.core.content.FileProvider
 import android.speech.tts.TextToSpeech
 import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
@@ -754,6 +757,78 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure {
                 _state.update { it.copy(message = str(R.string.msg_export_error, it.message ?: "—")) }
             }
+        }
+    }
+
+    /**
+     * Резервная копия: база смен и настройки одним zip-файлом.
+     * Дальше обычный share — куда хочется: облако, почта, Telegram.
+     */
+    fun backupData() {
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, message = null) }
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val application = getApplication<Application>()
+                    val file = ai.roadscan.app.data.BackupManager(application).create {
+                        // WAL → основной файл, чтобы копия не отстала от журнала.
+                        container.database.openHelper.writableDatabase
+                            .query("PRAGMA wal_checkpoint(TRUNCATE)")
+                            .use { it.moveToFirst() }
+                    }
+                    val uri = FileProvider.getUriForFile(
+                        application,
+                        "${application.packageName}.fileprovider",
+                        file,
+                    )
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/zip"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        clipData = ClipData.newUri(application.contentResolver, file.name, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    file to intent
+                }
+            }
+            _state.update { it.copy(busy = false) }
+            result.onSuccess { (file, intent) ->
+                _state.update { it.copy(message = str(R.string.backup_done, file.name)) }
+                runCatching {
+                    val chooser = Intent.createChooser(intent, str(R.string.share_chooser)).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        clipData = intent.clipData
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    getApplication<Application>().startActivity(chooser)
+                }
+            }.onFailure { error ->
+                _state.update { it.copy(message = str(R.string.backup_error, error.message ?: "—")) }
+            }
+        }
+    }
+
+    /**
+     * Восстановление из копии: архив раскладывается в staging, затем
+     * процесс завершается — при следующем запуске файлы подменяются
+     * до открытия базы (см. BackupManager.applyPendingRestore).
+     */
+    fun restoreBackup(uri: Uri) {
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, message = null) }
+            val staged = withContext(Dispatchers.IO) {
+                runCatching { ai.roadscan.app.data.BackupManager(getApplication()).stageRestore(uri) }
+            }
+            if (staged.isFailure) {
+                _state.update {
+                    it.copy(busy = false, message = str(R.string.backup_error, staged.exceptionOrNull()?.message ?: "—"))
+                }
+                return@launch
+            }
+            _state.update { it.copy(busy = false, message = str(R.string.backup_restore_staged)) }
+            // Даём прочитать сообщение — и завершаем процесс: подменить
+            // файлы открытой базы и prefs внутри живого процесса нельзя.
+            kotlinx.coroutines.delay(1_500)
+            Runtime.getRuntime().exit(0)
         }
     }
 

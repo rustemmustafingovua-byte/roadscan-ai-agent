@@ -71,6 +71,13 @@
     <string name="settings_license_remove">Удалить ключ</string>
     <string name="settings_autosetup">Автонастройка</string>
     <string name="settings_autosetup_hint">Оптика камеры из характеристик устройства, наклон из датчика, профиль по замеру скорости. Поставьте телефон в кронштейн и не трогайте его.</string>
+    <string name="settings_data">Данные</string>
+    <string name="settings_data_hint">Резервная копия: база сессий, сметы, ведомости, фото и настройки одним файлом. Восстановление на новом телефоне — из архива, после чего приложение перезапустится.</string>
+    <string name="settings_backup">Резервная копия</string>
+    <string name="settings_restore">Восстановить</string>
+    <string name="backup_done">Копия создана: %1$s</string>
+    <string name="backup_restore_staged">Копия восстановлена. Приложение перезапустится…</string>
+    <string name="backup_error">Не удалось: %1$s</string>
     <string name="settings_calibration">Калибровка камеры</string>
     <string name="settings_calibration_hint">Высота камеры над дорогой, наклон вниз и фокусное расстояние определяют точность площади (цель ±10–15%).</string>
     <string name="settings_calibration_profile">Профиль</string>

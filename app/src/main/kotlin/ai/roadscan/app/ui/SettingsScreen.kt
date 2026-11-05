@@ -65,6 +65,8 @@ fun SettingsScreen(
     onLoadDemo: () -> Unit,
     onRunDiagnostics: () -> Unit,
     onAutoSetup: () -> Unit = {},
+    onBackup: () -> Unit = {},
+    onRestore: (android.net.Uri) -> Unit = {},
     padding: PaddingValues,
 ) {
     var legalDoc by remember { mutableStateOf<LegalDoc?>(null) }
@@ -100,6 +102,7 @@ fun SettingsScreen(
                 )
             }
             item { DocumentsSection(state.meta, onSaveMeta) }
+            item { DataSection(onBackup, onRestore) }
             item { DemoSection(onLoadDemo) }
             item { LegalSection(onOpen = { legalDoc = it }) }
             item {
@@ -182,6 +185,40 @@ private fun LicenseSection(
                 OutlinedButton(onClick = onDeactivate, modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.settings_license_remove))
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Данные комплекса: резервная копия базы и настроек одним файлом
+ * (переезд на новый телефон, переустановка) и восстановление из файла.
+ */
+@Composable
+private fun DataSection(
+    onBackup: () -> Unit,
+    onRestore: (android.net.Uri) -> Unit,
+) {
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let(onRestore) }
+
+    SectionCard(stringResource(R.string.settings_data)) {
+        Text(
+            stringResource(R.string.settings_data_hint),
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onBackup, modifier = Modifier.weight(1f)) {
+                Text(stringResource(R.string.settings_backup), fontSize = 12.sp)
+            }
+            OutlinedButton(
+                onClick = { picker.launch(arrayOf("*/*")) },
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(stringResource(R.string.settings_restore), fontSize = 12.sp)
             }
         }
     }
