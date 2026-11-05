@@ -77,6 +77,17 @@ class RoadScanRepository(private val dao: RoadScanDao) {
                 ?.let { it to row.cnt }
         }
 
+    /**
+     * Удаляет смену: дефекты, строка смены и снимки находок на диске
+     * (фото — главный потребитель места в архиве).
+     */
+    suspend fun deleteSession(sessionId: String) {
+        val photos = dao.defectsFor(sessionId).mapNotNull { it.photoPath }
+        dao.deleteDefectsOf(sessionId)
+        dao.deleteSession(sessionId)
+        photos.forEach { path -> runCatching { java.io.File(path).delete() } }
+    }
+
     /** Реквизиты и калибровка сохранённой смены. */
     fun metaOf(session: SessionEntity): Pair<ai.roadscan.core.report.ReportMeta, ai.roadscan.core.calibration.CalibrationProfile?> =
         ai.roadscan.core.report.ReportMeta.fromJson(session.metaJson) to

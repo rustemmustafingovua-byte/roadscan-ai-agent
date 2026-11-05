@@ -66,6 +66,13 @@
     <string name="compare_by_type">За типами дефектів</string>
     <string name="compare_done">Готово</string>
     <string name="compare_error">Не вдалося порівняти: %1$s</string>
+    <string name="archive_export">Експорт усього архіву (ZIP)</string>
+    <string name="archive_export_empty">Немає завершених змін для експорту</string>
+    <string name="session_delete_title">Видалити зміну?</string>
+    <string name="session_delete_text">Зміна %1$s, її дефекты й знімки будуть видалені назавжди. Дію не можна скасувати.</string>
+    <string name="session_delete">Видалити</string>
+    <string name="session_delete_running">Смена працює — завершіть її перед видаленням</string>
+    <string name="session_deleted">Зміну видалено</string>
     <string name="archive_title">Підсумок архіву</string>
     <string name="archive_sessions_label">Змін</string>
     <string name="archive_sessions_value">%1$d</string>

@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.pm.PackageManager
 import android.content.ClipData
 import android.content.Intent
+import java.io.File
 import android.net.Uri
 import androidx.core.content.FileProvider
 import android.speech.tts.TextToSpeech
@@ -307,13 +308,26 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Сторона сравнения: дефекты + итоги сметы, как для отчёта. */
     private suspend fun loadSide(session: SessionEntity): ai.roadscan.core.report.SurveySide {
+        val report = loadReport(session)
+        return ai.roadscan.core.report.SurveySide(
+            defects = report.defects,
+            areaM2 = report.estimate.totalAreaM2,
+            cost = report.estimate.total,
+        )
+    }
+
+    /**
+     * Полный отчёт смены из базы: дефекты, кластеры, смета, реквизиты.
+     * Общая база для сравнения «до/после» и экспорта архива.
+     */
+    private suspend fun loadReport(session: SessionEntity): ai.roadscan.core.agent.SessionReport {
         val defects = repository.loadDefects(session.id)
         val (meta, calib) = repository.metaOf(session)
         val stats = ai.roadscan.core.agent.SessionStats(
             confirmed = defects.count { it.confirmed },
             visualOnly = defects.count { !it.confirmed },
         )
-        val report = ai.roadscan.core.agent.PostProcessingAgent(
+        return ai.roadscan.core.agent.PostProcessingAgent(
             container.config,
             container.priceCatalog,
         ).process(
@@ -329,11 +343,102 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             meta = meta,
             calibration = calib,
         )
-        return ai.roadscan.core.report.SurveySide(
-            defects = defects,
-            areaM2 = report.estimate.totalAreaM2,
-            cost = report.estimate.total,
-        )
+    }
+
+    /** Удаление смены со снимками; идущую смену удалять нельзя. */
+    fun deleteSession(session: SessionEntity) {
+        if (session.endedAtMs == 0L && _state.value.running) {
+            _state.update { it.copy(message = str(R.string.session_delete_running)) }
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = runCatching { repository.deleteSession(session.id) }.isSuccess
+            withContext(Dispatchers.Main) {
+                _state.update {
+                    it.copy(
+                        message = if (ok) {
+                            str(R.string.session_deleted)
+                        } else {
+                            str(R.string.compare_error, "—")
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Полный архив документов: комплект (PDF + XLSX + GeoJSON + снимки)
+     * каждой завершённой смены одним ZIP — на передачу заказчику разом.
+     */
+    fun exportArchive() {
+        refreshLicense()
+        if (!license.hasFeature("pdf")) {
+            _state.update { it.copy(message = str(R.string.msg_feature_unavailable, "PDF")) }
+            return
+        }
+        val sessions = _state.value.sessions.filter {
+            it.endedAtMs > 0L && !it.id.startsWith("DEMO")
+        }
+        if (sessions.isEmpty()) {
+            _state.update { it.copy(message = str(R.string.archive_export_empty)) }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, message = null) }
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val application = getApplication<Application>()
+                    val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
+                        .format(java.util.Date())
+                    val out = File(application.cacheDir, "exports/roadscan_archive_$stamp.zip")
+                    val licensed = license.isLicensed(System.currentTimeMillis())
+                    val entries = sessions.map { session ->
+                        val report = loadReport(session)
+                            .let { it.copy(meta = it.meta.copy(demo = !licensed)) }
+                        val file = exports.export(report, ReportFormat.PACKAGE)
+                        file.name to file
+                    }
+                    out.outputStream().use { stream ->
+                        ai.roadscan.core.backup.BackupArchive.write(stream, entries)
+                    }
+                    out
+                }
+            }
+            _state.update { it.copy(busy = false) }
+            result.onSuccess { file ->
+                _state.update { it.copy(message = str(R.string.msg_export_done, file.name)) }
+                shareFile(file, "application/zip")
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(message = str(R.string.msg_export_error, error.message ?: "—"))
+                }
+            }
+        }
+    }
+
+    /** Общий share: файл из кэша через FileProvider → системный лист. */
+    private fun shareFile(file: File, mime: String) {
+        runCatching {
+            val application = getApplication<Application>()
+            val uri = FileProvider.getUriForFile(
+                application,
+                "${application.packageName}.fileprovider",
+                file,
+            )
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = mime
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = ClipData.newUri(application.contentResolver, file.name, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(intent, str(R.string.share_chooser)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                clipData = intent.clipData
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            application.startActivity(chooser)
+        }
     }
 
     /**
@@ -914,31 +1019,13 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                             .query("PRAGMA wal_checkpoint(TRUNCATE)")
                             .use { it.moveToFirst() }
                     }
-                    val uri = FileProvider.getUriForFile(
-                        application,
-                        "${application.packageName}.fileprovider",
-                        file,
-                    )
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "application/zip"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        clipData = ClipData.newUri(application.contentResolver, file.name, uri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    file to intent
+                    file
                 }
             }
             _state.update { it.copy(busy = false) }
-            result.onSuccess { (file, intent) ->
+            result.onSuccess { file ->
                 _state.update { it.copy(message = str(R.string.backup_done, file.name)) }
-                runCatching {
-                    val chooser = Intent.createChooser(intent, str(R.string.share_chooser)).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        clipData = intent.clipData
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    getApplication<Application>().startActivity(chooser)
-                }
+                shareFile(file, "application/zip")
             }.onFailure { error ->
                 _state.update { it.copy(message = str(R.string.backup_error, error.message ?: "—")) }
             }

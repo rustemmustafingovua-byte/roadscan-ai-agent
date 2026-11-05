@@ -5,6 +5,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -224,6 +225,8 @@ fun RoadScanRoot(
                 onOpenSession = viewModel::openSession,
                 onToggleCompare = viewModel::toggleCompare,
                 onClearCompare = viewModel::clearCompare,
+                onDeleteSession = viewModel::deleteSession,
+                onExportArchive = viewModel::exportArchive,
                 padding = padding,
             )
 
@@ -811,10 +814,14 @@ private fun ReportScreen(
     onOpenSession: (SessionEntity) -> Unit,
     onToggleCompare: (SessionEntity) -> Unit,
     onClearCompare: () -> Unit,
+    onDeleteSession: (SessionEntity) -> Unit,
+    onExportArchive: () -> Unit,
     padding: PaddingValues,
 ) {
     val report = state.report
     val currency = state.currencySymbol
+    // Кого удалить: долгое нажатие на строке смены → подтверждение.
+    var deleteTarget by remember { mutableStateOf<SessionEntity?>(null) }
 
     LazyColumn(
         modifier = Modifier
@@ -895,11 +902,21 @@ private fun ReportScreen(
         }
 
         item {
-            Text(
-                stringResource(R.string.report_sessions, state.sessions.size),
-                style = MaterialTheme.typography.titleSmall,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(top = 8.dp),
-            )
+            ) {
+                Text(
+                    stringResource(R.string.report_sessions, state.sessions.size),
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                if (state.sessions.any { it.endedAtMs > 0L && !it.id.startsWith("DEMO") }) {
+                    TextButton(onClick = onExportArchive, enabled = !state.busy) {
+                        Text(stringResource(R.string.archive_export), fontSize = 11.sp)
+                    }
+                }
+            }
         }
         items(state.sessions, key = { it.id }) { session ->
             SessionRow(
@@ -908,8 +925,31 @@ private fun ReportScreen(
                 onClick = { onOpenSession(session) },
                 selected = state.compareIds.contains(session.id),
                 onToggleCompare = { onToggleCompare(session) },
+                onLongClick = { deleteTarget = session },
             )
         }
+    }
+
+    // Подтверждение удаления смены (долгое нажатие на строке).
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text(stringResource(R.string.session_delete_title)) },
+            text = { Text(stringResource(R.string.session_delete_text, target.id)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deleteTarget = null
+                        onDeleteSession(target)
+                    },
+                ) { Text(stringResource(R.string.session_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) {
+                    Text(stringResource(R.string.compare_cancel))
+                }
+            },
+        )
     }
 
     // Диалог сравнения — по второму выбранному этапу.
@@ -1507,13 +1547,20 @@ private fun SessionRow(
     onClick: () -> Unit,
     selected: Boolean = false,
     onToggleCompare: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                } else {
+                    Modifier.clickable(onClick = onClick)
+                },
+            ),
     ) {
         Row(
             Modifier.padding(12.dp),

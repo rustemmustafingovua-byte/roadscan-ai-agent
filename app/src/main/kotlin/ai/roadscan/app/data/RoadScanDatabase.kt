@@ -103,6 +103,13 @@ interface RoadScanDao {
     )
     suspend fun archiveTypeCounts(): List<TypeCount>
 
+    /** Удаление смены: сначала дефекты, затем строка смены. */
+    @Query("DELETE FROM defects WHERE sessionId = :sessionId")
+    suspend fun deleteDefectsOf(sessionId: String)
+
+    @Query("DELETE FROM sessions WHERE id = :sessionId")
+    suspend fun deleteSession(sessionId: String)
+
     @Query("SELECT COUNT(*) FROM sessions")
     fun observeSessionCount(): Flow<Int>
 

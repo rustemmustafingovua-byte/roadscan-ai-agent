@@ -62,6 +62,13 @@
     <string name="compare_by_type">По типам дефектов</string>
     <string name="compare_done">Готово</string>
     <string name="compare_error">Не удалось сравнить: %1$s</string>
+    <string name="archive_export">Экспорт всего архива (ZIP)</string>
+    <string name="archive_export_empty">Нет завершённых смен для экспорта</string>
+    <string name="session_delete_title">Удалить смену?</string>
+    <string name="session_delete_text">Смена %1$s, её дефекты и снимки будут удалены навсегда. Действие необратимо.</string>
+    <string name="session_delete">Удалить</string>
+    <string name="session_delete_running">Смена работает — завершите её перед удалением</string>
+    <string name="session_deleted">Смена удалена</string>
     <string name="archive_title">Итоги архива</string>
     <string name="archive_sessions_label">Смен</string>
     <string name="archive_sessions_value">%1$d</string>
