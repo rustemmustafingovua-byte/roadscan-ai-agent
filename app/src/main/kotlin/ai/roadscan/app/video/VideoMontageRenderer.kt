@@ -182,18 +182,54 @@ class VideoMontageRenderer(
         return output
     }
 
-    private fun eventIds(): Map<MontageEvent, String> {
-        val counters = mutableMapOf<DefectType, Int>()
-        val result = mutableMapOf<MontageEvent, String>()
-        plan.segments
-            .flatMap { it.events }
-            .sortedBy { it.peak.timeMs }
-            .forEach { event ->
-                val number = (counters[event.type] ?: 0) + 1
-                counters[event.type] = number
-                result[event] = "%s-%03d".format(VideoSeverity.prefix(event.type), number)
+    private fun eventIds(): Map<MontageEvent, String> = eventIds(plan)
+
+    companion object {
+        /**
+         * Нумерация находок ролика: «P-001», «C-002»… в порядке появления.
+         * Общая для рендерера (рамки на кадрах) и списка находок в UI —
+         * номера обязаны совпадать.
+         */
+        fun eventIds(plan: MontagePlan): Map<MontageEvent, String> {
+            val counters = mutableMapOf<DefectType, Int>()
+            val result = mutableMapOf<MontageEvent, String>()
+            plan.segments
+                .flatMap { it.events }
+                .sortedBy { it.peak.timeMs }
+                .forEach { event ->
+                    val number = (counters[event.type] ?: 0) + 1
+                    counters[event.type] = number
+                    result[event] = "%s-%03d".format(VideoSeverity.prefix(event.type), number)
+                }
+            return result
+        }
+
+        /**
+         * Таймкод находки в ГОТОВОМ ролике: титул + все предыдущие
+         * фрагменты + смещение внутри фрагмента. По нему превью
+         * перескакивает к моменту, где видно дефект.
+         */
+        fun outputTimeMs(plan: MontagePlan, event: MontageEvent): Long {
+            var offset = VideoBrander.INTRO_MS
+            for (segment in plan.segments) {
+                if (segment.events.any { it === event }) {
+                    val inside = (event.peak.timeMs - segment.startMs).coerceIn(0L, segment.durationMs)
+                    return offset + inside
+                }
+                offset += segment.durationMs
             }
-        return result
+            return VideoBrander.INTRO_MS
+        }
+
+        /** Минимальный размер валидного ролика: меньше — файл заведомо битый. */
+        private const val MIN_OUTPUT_BYTES = 1_024L
+
+        fun outputFile(directory: File, prefix: String = "roadscan_review"): File {
+            val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
+                .format(java.util.Date())
+            directory.mkdirs()
+            return File(directory, "${prefix}_$stamp.mp4")
+        }
     }
 
     private fun framesFor(durationMs: Long): Int =
@@ -217,15 +253,4 @@ class VideoMontageRenderer(
     fun outputSize(): Pair<Int, Int> = outputWidth to outputHeight
     fun outputFps(): Int = fps
 
-    companion object {
-        /** Минимальный размер валидного ролика: меньше — файл заведомо битый. */
-        private const val MIN_OUTPUT_BYTES = 1_024L
-
-        fun outputFile(directory: File, prefix: String = "roadscan_review"): File {
-            val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
-                .format(java.util.Date())
-            directory.mkdirs()
-            return File(directory, "${prefix}_$stamp.mp4")
-        }
-    }
 }

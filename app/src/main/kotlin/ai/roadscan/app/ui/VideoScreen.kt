@@ -83,6 +83,7 @@ fun VideoScreen(
     onStart: () -> Unit,
     onCancel: () -> Unit,
     onShare: () -> Unit,
+    onSaveToGallery: () -> Unit = {},
     onReset: () -> Unit,
     onClearMessage: () -> Unit,
     onPurpose: (VideoMode) -> Unit,
@@ -180,7 +181,7 @@ fun VideoScreen(
             if (state.busy) {
                 item { ProgressCard(state, onCancel) }
             } else if (state.purpose == VideoMode.MONTAGE && state.result != null && state.summary != null) {
-                item { ResultCard(state, onShare, onReset) }
+                item { ResultCard(state, onShare, onSaveToGallery, onReset) }
             } else if (state.purpose == VideoMode.MONTAGE && state.info != null) {
                 item {
                     Button(
@@ -533,11 +534,14 @@ private fun ProgressCard(state: VideoUiState, onCancel: () -> Unit) {
 private fun ResultCard(
     state: VideoUiState,
     onShare: () -> Unit,
+    onSaveToGallery: () -> Unit = {},
     onReset: () -> Unit,
 ) {
     val summary = state.summary ?: return
     val file = state.result ?: return
     val duration = VideoInfo.formatDuration(summary.durationMs)
+    // Куда перескочить превью: тап по находке в списке.
+    var seekMs by remember(file.path) { mutableStateOf<Long?>(null) }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -600,6 +604,50 @@ private fun ResultCard(
                 }
             }
 
+            // Наряд находок: тап — превью перескакивает к моменту с дефектом.
+            if (summary.findings.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    stringResource(R.string.video_findings_title),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                summary.findings.forEach { finding ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { seekMs = finding.timeMs }
+                            .padding(vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(videoDefectColor(finding.type)),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "${finding.id} · ${videoTypeName(finding.type)}",
+                            fontSize = 11.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            "${(finding.confidence * 100).toInt()}%",
+                            fontSize = 11.sp,
+                            color = videoDefectColor(finding.type),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            formatVideoTime(finding.timeMs),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+
             Spacer(Modifier.height(10.dp))
             Text(
                 stringResource(R.string.video_preview),
@@ -607,13 +655,16 @@ private fun ResultCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(4.dp))
-            VideoPreview(file)
+            VideoPreview(file, seekToMs = seekMs)
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onShare, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(stringResource(R.string.video_share))
+                    Text(stringResource(R.string.video_share), fontSize = 12.sp)
+                }
+                OutlinedButton(onClick = onSaveToGallery, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.video_save_gallery), fontSize = 12.sp)
                 }
                 OutlinedButton(onClick = onReset, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -626,11 +677,19 @@ private fun ResultCard(
 }
 
 @Composable
-private fun VideoPreview(file: File) {
+private fun VideoPreview(file: File, seekToMs: Long? = null) {
     // Пока зритель не нажал «играть», показываем реальный кадр из ролика:
     // VideoView в паузе на части устройств остаётся чёрным квадратом.
     var poster by remember(file.path) { mutableStateOf<ImageBitmap?>(null) }
     var playing by remember(file.path) { mutableStateOf(false) }
+    // Тап по находке: сразу играем с нужного момента.
+    val pendingSeek = remember(file.path) { java.util.concurrent.atomic.AtomicLong(-1) }
+    LaunchedEffect(seekToMs) {
+        if (seekToMs != null) {
+            pendingSeek.set(seekToMs)
+            playing = true
+        }
+    }
 
     LaunchedEffect(file.path) {
         // Кадр берём не из титула (он тёмный и выглядит как «чёрное видео»),
@@ -655,7 +714,11 @@ private fun VideoPreview(file: File) {
                         controller.setAnchorView(this)
                         setMediaController(controller)
                         setVideoPath(file.absolutePath)
-                        setOnPreparedListener { it.start() }
+                        setOnPreparedListener { player ->
+                            val at = pendingSeek.getAndSet(-1)
+                            if (at >= 0) player.seekTo(at.toInt())
+                            player.start()
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
@@ -742,6 +805,12 @@ private fun videoTypeName(type: DefectType): String = stringResource(
         DefectType.UNKNOWN -> R.string.type_unknown
     },
 )
+
+/** Таймкод находки в ролике: «м:сс». */
+private fun formatVideoTime(ms: Long): String {
+    val total = (ms / 1000).toInt().coerceAtLeast(0)
+    return "%d:%02d".format(total / 60, total % 60)
+}
 
 private fun videoDefectColor(type: DefectType): Color = when (type) {
     DefectType.POTHOLE -> Color(0xFFFF6B4A)

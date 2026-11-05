@@ -256,6 +256,9 @@
         <item quantity="other">%d фрагментів</item>
     </plurals>
     <string name="video_result_title">Ролик готовий</string>
+    <string name="video_save_gallery">У галерею</string>
+    <string name="video_saved_to_gallery">Ролик збережено у папку Movies/RoadScan</string>
+    <string name="video_save_failed">Не вдалося зберегти ролик у галерею</string>
     <string name="video_share">Поділитися</string>
     <string name="video_again">Новий ролик</string>
     <string name="video_error">Не вдалося обробити відео: %1$s</string>
@@ -266,6 +269,7 @@
     <string name="video_resolution_row">Роздільність</string>
     <string name="video_share_chooser">Надіслати ролик</string>
     <string name="video_no_defects_done">Дефектів не виявлено — сформовано коротке відео-підтвердження.</string>
+    <string name="video_findings_title">Нахідки (торкніться, щоб перейти до моменту)</string>
     <string name="video_preview">Попередній перегляд</string>
     <string name="video_watermark_demo">Ролик буде з водяним знаком «ДЕМО» — активуйте ліцензію.</string>
 

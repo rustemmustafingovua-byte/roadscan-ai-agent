@@ -204,6 +204,7 @@ fun RoadScanRoot(
                 onStart = videoViewModel::start,
                 onCancel = videoViewModel::cancel,
                 onShare = videoViewModel::share,
+                onSaveToGallery = videoViewModel::saveToGallery,
                 onReset = videoViewModel::reset,
                 onClearMessage = videoViewModel::clearMessage,
                 onPurpose = videoViewModel::setPurpose,

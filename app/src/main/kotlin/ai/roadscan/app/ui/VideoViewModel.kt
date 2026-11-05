@@ -63,6 +63,17 @@ data class VideoSummary(
     val durationMs: Long,
     val byType: List<Pair<DefectType, Int>>,
     val empty: Boolean,
+    /** Наряд находок: те же номера, что на кадрах ролика. */
+    val findings: List<FindingSummary> = emptyList(),
+)
+
+/** Одна находка в списке результата: тап — переход к моменту в ролике. */
+data class FindingSummary(
+    val id: String,
+    val type: DefectType,
+    val confidence: Float,
+    /** Таймкод в готовом ролике, мс (титул учтён). */
+    val timeMs: Long,
 )
 
 data class VideoUiState(
@@ -234,6 +245,7 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
                             durationMs = videoMs,
                             byType = renderer.summary(),
                             empty = plan.isEmpty,
+                            findings = buildFindings(plan),
                         ),
                         message = if (plan.isEmpty) str(R.string.video_no_defects_done) else null,
                     )
@@ -509,6 +521,76 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+    }
+
+    /**
+     * Сохранить готовый ролик в галерею (Movies/RoadScan): его найдёт и
+     * галерея, и файловый менеджер — не только само приложение.
+     */
+    fun saveToGallery() {
+        val file = _state.value.result ?: return
+        val application = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = runCatching {
+                val resolver = application.contentResolver
+                val values = android.content.ContentValues().apply {
+                    put(
+                        android.provider.MediaStore.Video.Media.DISPLAY_NAME,
+                        "RoadScan_" + java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
+                            .format(java.util.Date()) + ".mp4",
+                    )
+                    put(android.provider.MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                    if (android.os.Build.VERSION.SDK_INT >= 29) {
+                        put(
+                            android.provider.MediaStore.Video.Media.RELATIVE_PATH,
+                            "Movies/RoadScan",
+                        )
+                        put(android.provider.MediaStore.Video.Media.IS_PENDING, 1)
+                    }
+                }
+                val uri = resolver.insert(
+                    android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                    values,
+                ) ?: error("MediaStore отказал")
+                resolver.openOutputStream(uri)?.use { out ->
+                    file.inputStream().use { it.copyTo(out) }
+                } ?: error("файл не открылся")
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    values.clear()
+                    values.put(android.provider.MediaStore.Video.Media.IS_PENDING, 0)
+                    resolver.update(uri, values, null, null)
+                }
+                true
+            }.getOrDefault(false)
+
+            withContext(Dispatchers.Main) {
+                _state.update {
+                    it.copy(
+                        message = if (ok) {
+                            str(R.string.video_saved_to_gallery)
+                        } else {
+                            str(R.string.video_save_failed)
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    /** Наряд находок для списка результата — номера совпадают с роликом. */
+    private fun buildFindings(plan: ai.roadscan.core.video.MontagePlan): List<FindingSummary> {
+        val ids = ai.roadscan.app.video.VideoMontageRenderer.eventIds(plan)
+        return plan.segments
+            .flatMap { it.events }
+            .sortedBy { it.peak.timeMs }
+            .map { event ->
+                FindingSummary(
+                    id = ids[event] ?: "?",
+                    type = event.type,
+                    confidence = event.confidence,
+                    timeMs = ai.roadscan.app.video.VideoMontageRenderer.outputTimeMs(plan, event),
+                )
+            }
     }
 
     fun share() {
