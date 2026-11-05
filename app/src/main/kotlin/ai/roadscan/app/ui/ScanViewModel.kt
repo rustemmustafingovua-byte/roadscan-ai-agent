@@ -226,14 +226,56 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private var ttsReady = false
     private var lastSpokenAtMs = 0L
 
+    /** Смены, у которых итоги уже досчитаны в этом процессе (защита от цикла). */
+    private val repairedSessions = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
     init {
         viewModelScope.launch {
             repository.observeSessions().collect { sessions ->
                 _state.update { it.copy(sessions = sessions) }
+                repairInProgress(sessions)
             }
         }
         initTts()
         refreshReadiness()
+    }
+
+    /**
+     * Досчитывает итоги незавершённой смены по фактически записанным
+     * дефектам. Android мог убить процесс посреди смены: сами находки
+     * дописаны ходу, а агрегаты строки (счётчики, площадь, смета) — нет,
+     * и в списке смена висит с нулями. Выполняется один раз на смену.
+     */
+    private fun repairInProgress(sessions: List<SessionEntity>) {
+        sessions
+            .filter { it.endedAtMs == 0L && repairedSessions.add(it.id) }
+            .forEach { session ->
+                viewModelScope.launch(Dispatchers.IO) {
+                    runCatching {
+                        val defects = repository.loadDefects(session.id)
+                        if (defects.isEmpty()) return@runCatching
+                        val (meta, calib) = repository.metaOf(session)
+                        val stats = ai.roadscan.core.agent.SessionStats(
+                            confirmed = defects.count { it.confirmed },
+                            visualOnly = defects.count { !it.confirmed },
+                        )
+                        val report = ai.roadscan.core.agent.PostProcessingAgent(
+                            container.config,
+                            container.priceCatalog,
+                        ).process(
+                            sessionId = session.id,
+                            startedAtMs = session.startedAtMs,
+                            // 0 — смена остаётся «у процесі», итоги при этом по факту.
+                            endedAtMs = 0L,
+                            defects = defects,
+                            stats = stats,
+                            meta = meta,
+                            calibration = calib,
+                        )
+                        repository.save(report)
+                    }
+                }
+            }
     }
 
     /** Тюнинг устройства из автоподготовки; null — дефолтный профиль. */
