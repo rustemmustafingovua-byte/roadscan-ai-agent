@@ -84,6 +84,8 @@ data class UiState(
     val compareIds: List<String> = emptyList(),
     /** Результат сравнения двух смен; null — диалог закрыт. */
     val delta: ai.roadscan.core.report.SessionDelta? = null,
+    /** Отчёты двух смен для экспорта акта приёмки («до» и «после»). */
+    val compareReports: Pair<SessionReport, SessionReport>? = null,
     val comparing: Boolean = false,
     val modelReady: Boolean = false,
     /** Активный бэкенд инференса: NNAPI или XNNPACK. */
@@ -280,7 +282,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearCompare() {
-        _state.update { it.copy(compareIds = emptyList(), delta = null) }
+        _state.update {
+            it.copy(compareIds = emptyList(), delta = null, compareReports = null)
+        }
     }
 
     private fun buildDelta(ids: List<String>) {
@@ -290,12 +294,25 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                 .filter { session -> session.id in ids }
                 .sortedBy { it.startedAtMs }
             val result = withContext(Dispatchers.IO) {
-                runCatching { ordered.map { session -> loadSide(session) } }
+                runCatching { ordered.map { session -> loadReport(session) } }
             }
-            result.onSuccess { sides ->
-                if (sides.size == 2) {
+            result.onSuccess { reports ->
+                if (reports.size == 2) {
+                    val sides = reports.map { report ->
+                        ai.roadscan.core.report.SurveySide(
+                            defects = report.defects,
+                            areaM2 = report.estimate.totalAreaM2,
+                            cost = report.estimate.total,
+                        )
+                    }
                     val delta = ai.roadscan.core.report.SessionDiff.of(sides[0], sides[1])
-                    _state.update { it.copy(comparing = false, delta = delta) }
+                    _state.update {
+                        it.copy(
+                            comparing = false,
+                            delta = delta,
+                            compareReports = reports[0] to reports[1],
+                        )
+                    }
                 } else {
                     _state.update {
                         it.copy(comparing = false, message = str(R.string.compare_error, "—"))
@@ -964,6 +981,55 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // --- экспорт ---
+
+    /**
+     * Акт приёмки ремонта: PDF сравнения двух обследований с подписью
+     * оператора — документ, который подписывают на приёмке работ.
+     */
+    fun exportComparePdf() {
+        val (before, after, delta) = _state.value.let {
+            Triple(it.compareReports?.first, it.compareReports?.second, it.delta)
+        }
+        if (before == null || after == null || delta == null) {
+            _state.update { it.copy(message = str(R.string.compare_error, "—")) }
+            return
+        }
+        refreshLicense()
+        if (!license.hasFeature("pdf")) {
+            _state.update { it.copy(message = str(R.string.msg_feature_unavailable, "PDF")) }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, message = null) }
+            val stampedBefore = before.copy(
+                meta = before.meta.copy(demo = !license.isLicensed(System.currentTimeMillis())),
+            )
+            val stampedAfter = after.copy(
+                meta = after.meta.copy(demo = !license.isLicensed(System.currentTimeMillis())),
+            )
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = exports.exportComparison(stampedBefore, stampedAfter, delta)
+                    file to exports.shareIntent(file, ReportFormat.PDF)
+                }
+            }
+            _state.update { it.copy(busy = false) }
+            result.onSuccess { (file, intent) ->
+                _state.update { it.copy(message = str(R.string.msg_export_done, file.name)) }
+                runCatching {
+                    val chooser = Intent.createChooser(intent, str(R.string.share_chooser)).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        clipData = intent.clipData
+                    }
+                    getApplication<Application>().startActivity(chooser)
+                }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(message = str(R.string.msg_export_error, error.message ?: "—"))
+                }
+            }
+        }
+    }
 
     fun export(format: ReportFormat) {
         val report = _state.value.report ?: return

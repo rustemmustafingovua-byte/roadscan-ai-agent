@@ -78,6 +78,21 @@ class ExportManager(
         )
     }
 
+    /**
+     * Акт приёмки ремонта: сравнение двух обследований одним PDF
+     * (показатели было/стало, устранено/осталось/нових, подпись).
+     */
+    fun exportComparison(
+        before: SessionReport,
+        after: SessionReport,
+        delta: ai.roadscan.core.report.SessionDelta,
+    ): File {
+        val dir = File(context.cacheDir, "exports/compare").apply { mkdirs() }
+        val file = File(dir, "akt_${before.sessionId}_${after.sessionId}.pdf")
+        file.writeBytes(PdfReportGenerator(strings).generateComparison(before, after, delta))
+        return file
+    }
+
     fun shareIntent(file: File, format: ReportFormat): Intent {
         val uri = FileProvider.getUriForFile(
             context,

@@ -227,6 +227,7 @@ fun RoadScanRoot(
                 onClearCompare = viewModel::clearCompare,
                 onDeleteSession = viewModel::deleteSession,
                 onExportArchive = viewModel::exportArchive,
+                onExportComparePdf = viewModel::exportComparePdf,
                 padding = padding,
             )
 
@@ -817,6 +818,7 @@ private fun ReportScreen(
     onClearCompare: () -> Unit,
     onDeleteSession: (SessionEntity) -> Unit,
     onExportArchive: () -> Unit,
+    onExportComparePdf: () -> Unit,
     padding: PaddingValues,
 ) {
     val report = state.report
@@ -967,6 +969,8 @@ private fun ReportScreen(
             afterDate = dates.getOrNull(1) ?: "",
             currency = currency,
             onDismiss = onClearCompare,
+            onExportPdf = onExportComparePdf,
+            exporting = state.busy,
         )
     }
 }
@@ -1410,6 +1414,8 @@ private fun DeltaDialog(
     afterDate: String,
     currency: String,
     onDismiss: () -> Unit,
+    onExportPdf: () -> Unit = {},
+    exporting: Boolean = false,
 ) {
     val trendColor = when (ai.roadscan.core.report.SessionDiff.trend(delta)) {
         ai.roadscan.core.report.SessionDiff.Trend.BETTER -> Good
@@ -1512,8 +1518,14 @@ private fun DeltaDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.compare_done))
+            Row {
+                // Акт приёмки: подписанный PDF сравнения «до/после».
+                TextButton(onClick = onExportPdf, enabled = !exporting) {
+                    Text(stringResource(R.string.compare_pdf))
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.compare_done))
+                }
             }
         },
     )

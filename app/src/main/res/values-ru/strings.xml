@@ -60,6 +60,7 @@
     <string name="compare_resolved_line">Устранено %1$d · осталось %2$d · новых %3$d</string>
     <string name="compare_nomatch">У одного из обследований нет координат — сравнены только итоги.</string>
     <string name="compare_by_type">По типам дефектов</string>
+    <string name="compare_pdf">Акт (PDF)</string>
     <string name="compare_done">Готово</string>
     <string name="compare_error">Не удалось сравнить: %1$s</string>
     <string name="archive_export">Экспорт всего архива (ZIP)</string>

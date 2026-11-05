@@ -92,6 +92,19 @@ interface DocStrings {
     /** Заголовок блока подписи в PDF-акте. */
     val signatureLabel: String get() = "Підпис"
 
+    // --- акт порівняння двох обстежень (приймання ремонту) ---
+    val compareTitle: String get() = "Акт порівняння обстежень"
+    val metricLabel: String get() = "Показник"
+    val wasLabel: String get() = "Було"
+    val becameLabel: String get() = "Стало"
+    val changeLabel: String get() = "Зміна"
+    val resolvedLabel: String get() = "Усунуто"
+    val remainingLabel: String get() = "Залишилось"
+    val appearedLabel: String get() = "Нових"
+    val compareNoMatch: String get() = "Немає координат — порівняно лише підсумки"
+    val byTypeLabel: String get() = "За типами дефектів"
+    val typeLabel: String get() = "Тип"
+
     /** Символ валюты по ISO-коду каталога. */
     fun currencySymbol(currency: String): String
 
@@ -275,6 +288,17 @@ interface DocStrings {
         override val demoWatermark = "ДЕМО"
         override val footer = "RoadScan AI Agent · стр."
         override val signatureLabel = "Подпись оператора"
+        override val compareTitle = "Акт сравнения обследований"
+        override val metricLabel = "Показатель"
+        override val wasLabel = "Было"
+        override val becameLabel = "Стало"
+        override val changeLabel = "Изменение"
+        override val resolvedLabel = "Устранено"
+        override val remainingLabel = "Осталось"
+        override val appearedLabel = "Новых"
+        override val compareNoMatch = "Нет координат — сравнены только итоги"
+        override val byTypeLabel = "По типам дефектов"
+        override val typeLabel = "Тип"
 
         override fun currencySymbol(currency: String): String = when (currency.uppercase()) {
             "RUB" -> "₽"

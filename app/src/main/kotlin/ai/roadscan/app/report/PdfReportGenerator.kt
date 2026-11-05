@@ -6,6 +6,8 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import ai.roadscan.core.agent.SessionReport
 import ai.roadscan.core.i18n.DocStrings
+import ai.roadscan.core.report.SessionDelta
+import ai.roadscan.core.report.SessionDiff
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -100,6 +102,144 @@ class PdfReportGenerator(private val strings: DocStrings = DocStrings.DEFAULT) {
             )
         }
 
+        writer.finish()
+        return writer.toByteArray()
+    }
+
+    /**
+     * Акт приёмки ремонта: сравнение двух обследований одного участка
+     * («до» и «после») — показатели было/стало/зміна, устранено/
+     * осталось/нових и разбивка по типам, с подписью оператора.
+     */
+    fun generateComparison(before: SessionReport, after: SessionReport, delta: SessionDelta): ByteArray {
+        val document = PdfDocument()
+        val writer = Writer(document)
+        writer.startPage()
+        val s = strings
+        val currency = s.currencySymbol(after.estimate.currency)
+
+        writer.text("RoadScan AI · ${s.compareTitle}", titlePaint, 40f, 56f)
+        writer.text(
+            "${format(before.startedAtMs)} → ${format(after.startedAtMs)}",
+            subtitlePaint,
+            40f,
+            72f,
+        )
+
+        var y = 96f
+        val meta = after.meta
+        val metaLines = buildList {
+            meta.objectName.takeIf { it.isNotBlank() }?.let { add("${s.objectLabel}: $it") }
+            meta.roadName.takeIf { it.isNotBlank() }?.let { add("${s.roadLabel}: $it") }
+            meta.customer.takeIf { it.isNotBlank() }?.let { add("${s.customerLabel}: $it") }
+            meta.contractor.takeIf { it.isNotBlank() }?.let { add("${s.contractorLabel}: $it") }
+            meta.contractNumber.takeIf { it.isNotBlank() }?.let { add("${s.contractLabel}: $it") }
+        }
+        metaLines.forEach { line ->
+            writer.text(clip(line, 110), bodyPaint, 40f, y)
+            y += 11f
+        }
+        if (metaLines.isNotEmpty()) y += 4f
+
+        // Таблица «было → стало» по трём показателям.
+        val columns = floatArrayOf(40f, 230f, 330f, 430f)
+        writer.text(s.summaryTitle, bodyBoldPaint, 40f, y)
+        y += 14f
+        writer.tableHeader(y, listOf(s.metricLabel, s.wasLabel, s.becameLabel, s.changeLabel), columns)
+        y += 16f
+
+        val rows = listOf(
+            listOf(
+                s.defectsCountLabel,
+                delta.defectsBefore.toString(),
+                delta.defectsAfter.toString(),
+                delta.changePercent?.let { "%+.0f%%".format(it) } ?: "—",
+            ),
+            listOf(
+                s.areaLabel,
+                "%.1f м²".format(delta.areaBeforeM2),
+                "%.1f м²".format(delta.areaAfterM2),
+                "%+.1f м²".format(delta.areaAfterM2 - delta.areaBeforeM2),
+            ),
+            listOf(
+                s.estimateLabel,
+                "%.0f %s".format(delta.costBefore, currency),
+                "%.0f %s".format(delta.costAfter, currency),
+                "%+.0f %s".format(delta.costAfter - delta.costBefore, currency),
+            ),
+        )
+        rows.forEach { row ->
+            writer.row(y)
+            writer.text(row[0], bodyBoldPaint, columns[0] + 2f, y + 10f)
+            writer.text(row[1], bodyPaint, columns[1] + 2f, y + 10f)
+            writer.text(row[2], bodyPaint, columns[2] + 2f, y + 10f)
+            writer.text(row[3], bodyPaint, columns[3] + 2f, y + 10f)
+            y += 16f
+        }
+        writer.row(y)
+        y += 14f
+
+        // Приёмка: устранено / осталось / новых — по геометрии (радиус 5 м).
+        if (delta.matched) {
+            val cards = listOf(
+                s.resolvedLabel to (delta.resolved ?: 0).toString(),
+                s.remainingLabel to (delta.remaining ?: 0).toString(),
+                s.appearedLabel to (delta.appeared ?: 0).toString(),
+            )
+            val cardWidth = 125f
+            cards.forEachIndexed { index, (label, value) ->
+                val x = 40f + index * (cardWidth + 10f)
+                writer.box(x, y, cardWidth, 38f)
+                writer.text(label, subtitlePaint, x + 10f, y + 15f)
+                writer.text(value, bodyBoldPaint, x + 10f, y + 30f)
+            }
+            y += 50f
+        } else {
+            writer.text(s.compareNoMatch, subtitlePaint, 40f, y)
+            y += 16f
+        }
+
+        // Разбивка по типам дефектов.
+        if (delta.byType.isNotEmpty()) {
+            val typeColumns = floatArrayOf(40f, 260f, 360f, 460f)
+            writer.text(s.byTypeLabel, bodyBoldPaint, 40f, y)
+            y += 14f
+            writer.tableHeader(
+                y,
+                listOf(s.typeLabel, s.wasLabel, s.becameLabel, s.changeLabel),
+                typeColumns,
+            )
+            y += 16f
+            delta.byType.forEach { item ->
+                if (writer.needsNewPage(y, 18f)) {
+                    writer.newPage()
+                    y = 56f
+                    writer.tableHeader(
+                        y,
+                        listOf(s.typeLabel, s.wasLabel, s.becameLabel, s.changeLabel),
+                        typeColumns,
+                    )
+                    y += 16f
+                }
+                writer.row(y)
+                writer.text(s.defectType(item.type), bodyPaint, typeColumns[0] + 2f, y + 10f)
+                writer.text(item.before.toString(), bodyPaint, typeColumns[1] + 2f, y + 10f)
+                writer.text(item.after.toString(), bodyPaint, typeColumns[2] + 2f, y + 10f)
+                writer.text(
+                    "%+d".format(item.after - item.before),
+                    bodyPaint,
+                    typeColumns[3] + 2f,
+                    y + 10f,
+                )
+                y += 16f
+            }
+            writer.row(y)
+            y += 14f
+        }
+
+        signature(writer, after, y + 6f)
+
+        writer.demo = after.meta.demo
         writer.finish()
         return writer.toByteArray()
     }
