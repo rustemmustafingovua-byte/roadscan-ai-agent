@@ -87,7 +87,8 @@ class PdfReportGenerator(private val strings: DocStrings = DocStrings.DEFAULT) {
         y = summary(writer, report, y, currency)
         y = estimate(writer, report, y + 10f, currency)
         y = clusters(writer, report, y + 10f, currency)
-        photos(writer, report, y + 12f)
+        y = photos(writer, report, y + 12f)
+        signature(writer, report, y + 10f)
 
         writer.demo = report.meta.demo
         writer.calibrationNote = report.calibration?.let {
@@ -101,6 +102,36 @@ class PdfReportGenerator(private val strings: DocStrings = DocStrings.DEFAULT) {
 
         writer.finish()
         return writer.toByteArray()
+    }
+
+    /**
+     * Подпись оператора (росчерк, нарисованный пальцем в настройках):
+     * линия подписи с изображением над ней — как в бумажном акте.
+     */
+    private fun signature(writer: Writer, report: SessionReport, startY: Float): Float {
+        val encoded = report.meta.signaturePng?.takeIf { it.isNotBlank() } ?: return startY
+        val bitmap = runCatching {
+            val bytes = android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }.getOrNull() ?: return startY
+
+        var y = startY
+        val height = 44f
+        val width = (height * bitmap.width / bitmap.height.toFloat()).coerceIn(80f, 190f)
+        if (writer.needsNewPage(y, height + 30f)) {
+            writer.newPage()
+            y = 56f
+        }
+        writer.text(strings.signatureLabel, subtitlePaint, 40f, y + 8f)
+        writer.image(bitmap, 44f, y + 12f, width, height)
+        writer.row(y + height + 16f)
+        writer.text(
+            report.meta.operatorName.takeIf { it.isNotBlank() } ?: strings.operatorLabel,
+            subtitlePaint,
+            44f,
+            y + height + 27f,
+        )
+        return y + height + 34f
     }
 
     private fun summary(writer: Writer, report: SessionReport, startY: Float, currency: String): Float {

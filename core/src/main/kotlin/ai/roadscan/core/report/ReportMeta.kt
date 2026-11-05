@@ -43,6 +43,11 @@ data class ReportMeta(
     val sectionBearingDeg: Double = 0.0,
     /** Демонстрационный режим: документы помечаются водяным знаком. */
     val demo: Boolean = false,
+    /**
+     * Подпись оператора (росчерк) — PNG в Base64, рисуется пальцем
+     * в настройках и попадает в PDF-акт. null — подписи нет.
+     */
+    val signaturePng: String? = null,
 ) {
     val isFilled: Boolean
         get() = objectName.isNotBlank() || roadName.isNotBlank() || customer.isNotBlank() ||

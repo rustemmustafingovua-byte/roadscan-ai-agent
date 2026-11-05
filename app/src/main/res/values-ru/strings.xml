@@ -108,6 +108,9 @@
     <string name="settings_calibration_focal_invalid">Введите корректные значения</string>
     <string name="settings_calibration_apply">Подставить</string>
     <string name="settings_calibration_save">Сохранить калибровку</string>
+    <string name="settings_signature_hint">Подпись оператора: проведите пальцем по рамке — росчерк попадёт в PDF-акт.</string>
+    <string name="settings_signature_saved">подпись сохранена</string>
+    <string name="settings_signature_clear">Очистить</string>
     <string name="settings_meta">Реквизиты документов</string>
     <string name="settings_meta_hint">Попадают в шапку PDF, Excel и GeoJSON — без них ведомость нельзя согласовать.</string>
     <string name="settings_meta_object">Объект / участок</string>

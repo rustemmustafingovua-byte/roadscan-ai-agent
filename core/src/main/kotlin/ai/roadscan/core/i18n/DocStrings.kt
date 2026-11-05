@@ -89,6 +89,8 @@ interface DocStrings {
     val demoNotice: String
     val demoWatermark: String
     val footer: String
+    /** Заголовок блока подписи в PDF-акте. */
+    val signatureLabel: String get() = "Підпис"
 
     /** Символ валюты по ISO-коду каталога. */
     fun currencySymbol(currency: String): String
@@ -174,6 +176,7 @@ interface DocStrings {
         override val demoNotice = "ДЕМОНСТРАЦІЙНИЙ ДОКУМЕНТ — не для оплати"
         override val demoWatermark = "ДЕМО"
         override val footer = "RoadScan AI Agent · стор."
+        override val signatureLabel = "Підпис оператора"
 
         override fun currencySymbol(currency: String): String = when (currency.uppercase()) {
             "UAH" -> "₴"
@@ -271,6 +274,7 @@ interface DocStrings {
         override val demoNotice = "ДЕМОНСТРАЦИОННЫЙ ДОКУМЕНТ — не для оплаты"
         override val demoWatermark = "ДЕМО"
         override val footer = "RoadScan AI Agent · стр."
+        override val signatureLabel = "Подпись оператора"
 
         override fun currencySymbol(currency: String): String = when (currency.uppercase()) {
             "RUB" -> "₽"

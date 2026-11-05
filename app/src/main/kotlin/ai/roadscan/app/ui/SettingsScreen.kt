@@ -1,5 +1,9 @@
 package ai.roadscan.app.ui
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +40,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -343,6 +354,121 @@ private fun CalibrationSection(
     }
 }
 
+/**
+ * Подпись оператора: ведём пальцем по рамке, росчерк становится PNG
+ * и попадает в PDF-акт (реквизиты → реквизиты документа).
+ */
+@Composable
+private fun SignatureField(signature: String?, onChange: (String?) -> Unit) {
+    var strokes by remember(signature) { mutableStateOf<List<List<Offset>>>(emptyList()) }
+    var active by remember { mutableStateOf<List<Offset>?>(null) }
+    var canvasSize by remember { mutableStateOf(Offset.Zero) }
+
+    Text(
+        stringResource(R.string.settings_signature_hint),
+        fontSize = 11.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(6.dp))
+    Canvas(
+        Modifier
+            .fillMaxWidth()
+            .height(110.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { offset -> active = listOf(offset) },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        active = (active ?: emptyList()) + change.position
+                    },
+                    onDragEnd = {
+                        val merged = strokes + listOfNotNull(active?.takeIf { it.size > 2 })
+                        strokes = merged
+                        active = null
+                        onChange(encodeSignature(merged, canvasSize))
+                    },
+                    onDragCancel = { active = null },
+                )
+            },
+    ) {
+        canvasSize = Offset(size.width, size.height)
+        val stroke = Stroke(width = 5f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        (strokes + listOfNotNull(active)).forEach { points ->
+            if (points.isEmpty()) return@forEach
+            val path = Path().apply {
+                moveTo(points.first().x, points.first().y)
+                points.drop(1).forEach { lineTo(it.x, it.y) }
+                if (points.size == 1) lineTo(points.first().x + 0.1f, points.first().y)
+            }
+            drawPath(path, color = Color(0xFF1A237E), style = stroke)
+        }
+    }
+    Spacer(Modifier.height(4.dp))
+    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Text(
+            if (signature != null && strokes.isEmpty()) {
+                stringResource(R.string.settings_signature_saved)
+            } else {
+                ""
+            },
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(
+            onClick = {
+                strokes = emptyList()
+                active = null
+                onChange(null)
+            },
+            enabled = strokes.isNotEmpty() || signature != null,
+        ) {
+            Text(stringResource(R.string.settings_signature_clear), fontSize = 11.sp)
+        }
+    }
+}
+
+/** Росчерк → PNG 900×300 (масштаб по рамке) → Base64 для метаданных. */
+private fun encodeSignature(strokes: List<List<Offset>>, canvasSize: Offset): String? {
+    if (strokes.isEmpty() || canvasSize.x <= 0f || canvasSize.y <= 0f) return null
+    val width = 900
+    val height = 300
+    val bitmap = android.graphics.Bitmap.createBitmap(
+        width,
+        height,
+        android.graphics.Bitmap.Config.ARGB_8888,
+    )
+    val canvas = android.graphics.Canvas(bitmap)
+    val scale = minOf(width / canvasSize.x, height / canvasSize.y)
+    val offsetX = (width - canvasSize.x * scale) / 2f
+    val offsetY = (height - canvasSize.y * scale) / 2f
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.rgb(26, 35, 129)
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = 5f * scale
+        strokeCap = android.graphics.Paint.Cap.ROUND
+        strokeJoin = android.graphics.Paint.Join.ROUND
+    }
+    strokes.forEach { points ->
+        if (points.isEmpty()) return@forEach
+        val path = android.graphics.Path().apply {
+            moveTo(points.first().x * scale + offsetX, points.first().y * scale + offsetY)
+            points.drop(1).forEach { lineTo(it.x * scale + offsetX, it.y * scale + offsetY) }
+            if (points.size == 1) {
+                lineTo(points.first().x * scale + offsetX + 0.1f, points.first().y * scale + offsetY)
+            }
+        }
+        canvas.drawPath(path, paint)
+    }
+    val out = java.io.ByteArrayOutputStream()
+    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+    bitmap.recycle()
+    return android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+}
+
 @Composable
 private fun DocumentsSection(meta: ReportMeta, onSave: (ReportMeta) -> Unit) {
     var objectName by remember(meta) { mutableStateOf(meta.objectName) }
@@ -358,6 +484,7 @@ private fun DocumentsSection(meta: ReportMeta, onSave: (ReportMeta) -> Unit) {
     var sectionLat by remember(meta) { mutableStateOf(meta.sectionStartLat?.toString() ?: "") }
     var sectionLon by remember(meta) { mutableStateOf(meta.sectionStartLon?.toString() ?: "") }
     var bearing by remember(meta) { mutableStateOf(if (meta.sectionBearingDeg != 0.0) meta.sectionBearingDeg.toString() else "") }
+    var signature by remember(meta) { mutableStateOf(meta.signaturePng) }
 
     SectionCard(stringResource(R.string.settings_meta)) {
         Text(
@@ -418,6 +545,8 @@ private fun DocumentsSection(meta: ReportMeta, onSave: (ReportMeta) -> Unit) {
             bearing,
             keyboard = KeyboardType.Decimal,
         ) { bearing = it }
+        Spacer(Modifier.height(8.dp))
+        SignatureField(signature) { signature = it }
         Spacer(Modifier.height(10.dp))
         Button(
             onClick = {
@@ -436,6 +565,7 @@ private fun DocumentsSection(meta: ReportMeta, onSave: (ReportMeta) -> Unit) {
                         sectionStartLat = sectionLat.toDoubleOrNull(),
                         sectionStartLon = sectionLon.toDoubleOrNull(),
                         sectionBearingDeg = bearing.toDoubleOrNull() ?: 0.0,
+                        signaturePng = signature,
                     ),
                 )
             },
