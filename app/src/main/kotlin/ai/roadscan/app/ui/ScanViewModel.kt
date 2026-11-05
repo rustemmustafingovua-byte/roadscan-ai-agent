@@ -233,8 +233,79 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         refreshReadiness()
     }
 
-    private fun buildAgent(profile: CalibrationProfile): RoadScanAgent = RoadScanAgent(
-        config = profile.applyTo(container.config),
+    /** Тюнинг устройства из автоподготовки; null — дефолтный профиль. */
+    private var deviceTuning: ai.roadscan.core.calibration.DeviceTuning? = null
+
+    /**
+     * Автоподготовка (одна кнопка): оптика камеры из характеристик,
+     * наклон по датчику, замер инференса, профиль работы. Всё офлайн.
+     */
+    fun runAutoSetup() {
+        viewModelScope.launch(Dispatchers.Default) {
+            _state.update { it.copy(busy = true, message = null) }
+            val runner = ai.roadscan.app.setup.AutoSetupRunner(getApplication())
+            val result = runCatching {
+                runner.run(measureInferenceMs = { measureInferenceMs() })
+            }
+            withContext(Dispatchers.Main) {
+                result.onSuccess { setup ->
+                    deviceTuning = setup.tuning
+                    container.settings.saveCalibration(setup.calibration)
+                    calibration = setup.calibration
+                    agent = buildAgent(setup.calibration)
+                    _state.update {
+                        it.copy(
+                            busy = false,
+                            calibration = setup.calibration,
+                            message = setup.summary,
+                        )
+                    }
+                    refreshReadiness()
+                }.onFailure { error ->
+                    _state.update {
+                        it.copy(busy = false, message = "Автонастройка не удалась: ${error.message}")
+                    }
+                }
+            }
+        }
+    }
+
+    /** Медианная задержка инференса на пробных кадрах, мс. */
+    private fun measureInferenceMs(): Double {
+        val bitmap = android.graphics.Bitmap.createBitmap(
+            1280,
+            720,
+            android.graphics.Bitmap.Config.ARGB_8888,
+        )
+        val canvas = android.graphics.Canvas(bitmap)
+        canvas.drawColor(android.graphics.Color.rgb(120, 120, 120))
+        val frame = ai.roadscan.core.model.FrameData(
+            timestampMs = System.currentTimeMillis(),
+            location = null,
+            cameraHeightM = 1.3f,
+            cameraPitchDeg = 8f,
+            imageWidth = 1280,
+            imageHeight = 720,
+            imageRef = bitmap,
+        )
+        val samples = mutableListOf<Double>()
+        repeat(3) {
+            detector.detect(frame)
+            samples += detector.lastLatencyMs
+        }
+        bitmap.recycle()
+        return samples.sorted().let { it[it.size / 2] }
+    }
+
+    private fun buildAgent(profile: CalibrationProfile): RoadScanAgent {
+        val base = deviceTuning?.let { tuning ->
+            container.config.copy(maxAnalysisFps = tuning.analysisFps)
+        } ?: container.config
+        return buildAgent(profile, base)
+    }
+
+    private fun buildAgent(profile: CalibrationProfile, config: ai.roadscan.core.agent.AgentConfig): RoadScanAgent = RoadScanAgent(
+        config = profile.applyTo(config),
         detector = detector,
         eventListener = { event -> onAgentEvent(event) },
         messages = messages,

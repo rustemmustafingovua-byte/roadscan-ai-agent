@@ -64,6 +64,7 @@ fun SettingsScreen(
     onDeactivateLicense: () -> Unit,
     onLoadDemo: () -> Unit,
     onRunDiagnostics: () -> Unit,
+    onAutoSetup: () -> Unit = {},
     padding: PaddingValues,
 ) {
     var legalDoc by remember { mutableStateOf<LegalDoc?>(null) }
@@ -91,7 +92,13 @@ fun SettingsScreen(
             }
             item { DiagnosticsSection(state.diagnostics, onRunDiagnostics) }
             item { LicenseSection(state, onActivateLicense, onDeactivateLicense) }
-            item { CalibrationSection(state.calibration, onSaveCalibration) }
+            item {
+                CalibrationSection(
+                    state.calibration,
+                    onSaveCalibration,
+                    onAutoSetup = onAutoSetup,
+                )
+            }
             item { DocumentsSection(state.meta, onSaveMeta) }
             item { DemoSection(onLoadDemo) }
             item { LegalSection(onOpen = { legalDoc = it }) }
@@ -184,6 +191,7 @@ private fun LicenseSection(
 private fun CalibrationSection(
     profile: CalibrationProfile,
     onSave: (CalibrationProfile) -> Unit,
+    onAutoSetup: () -> Unit = {},
 ) {
     var height by remember(profile) { mutableStateOf("%.2f".format(Locale.US, profile.cameraHeightM)) }
     var pitch by remember(profile) { mutableStateOf("%.1f".format(Locale.US, profile.cameraPitchDeg)) }
@@ -201,6 +209,20 @@ private fun CalibrationSection(
         Text(
             stringResource(R.string.settings_calibration_hint),
             fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        // Автоподготовка: оптика из характеристик камеры, наклон по датчику,
+        // профиль устройства по замеру инференса. Оператору ничего не измерять.
+        Button(
+            onClick = onAutoSetup,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.settings_autosetup))
+        }
+        Text(
+            stringResource(R.string.settings_autosetup_hint),
+            fontSize = 10.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(8.dp))

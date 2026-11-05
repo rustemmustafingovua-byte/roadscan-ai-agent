@@ -69,6 +69,8 @@
     <string name="settings_license_key_label">Ключ лицензии RSL1…</string>
     <string name="settings_license_activate">Активировать</string>
     <string name="settings_license_remove">Удалить ключ</string>
+    <string name="settings_autosetup">Автонастройка</string>
+    <string name="settings_autosetup_hint">Оптика камеры из характеристик устройства, наклон из датчика, профиль по замеру скорости. Поставьте телефон в кронштейн и не трогайте его.</string>
     <string name="settings_calibration">Калибровка камеры</string>
     <string name="settings_calibration_hint">Высота камеры над дорогой, наклон вниз и фокусное расстояние определяют точность площади (цель ±10–15%).</string>
     <string name="settings_calibration_profile">Профиль</string>
