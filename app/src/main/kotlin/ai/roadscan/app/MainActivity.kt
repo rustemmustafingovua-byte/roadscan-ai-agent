@@ -70,11 +70,26 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun videoUri(intent: Intent?): Uri? {
-        if (intent?.action != Intent.ACTION_SEND) return null
-        val type = intent.type ?: return null
-        if (!type.startsWith("video/")) return null
-        return intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        val action = intent?.action ?: return null
+        val type = intent.type
+        return when {
+            // Поделились видео из галереи.
+            action == Intent.ACTION_SEND && type?.startsWith("video/") == true ->
+                streamUri(intent)
+            // Открыли видео файловым менеджером («Открыть через…»).
+            action == Intent.ACTION_VIEW && (type?.startsWith("video/") == true || intent.dataString?.endsWith(".mp4") == true) ->
+                intent.data
+            else -> null
+        }
     }
+
+    private fun streamUri(intent: Intent): Uri? = runCatching {
+        @Suppress("DEPRECATION")
+        intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+    }.getOrNull() ?: runCatching {
+        // Android 13+: типизированный доступ без ClassCastException на мусоре.
+        intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+    }.getOrNull()
 
     private fun applyLicenseIntent(intent: Intent?) {
         val uri = intent?.data ?: return

@@ -48,6 +48,27 @@ class Mp4Encoder(
 
     fun encode(bitmap: Bitmap) {
         val ptsUs = frameIndex * 1_000_000L / fps
+        // Диагностика «чёрного видео»: яркость кадра ДО кодирования.
+        // Если здесь 100+, а в файле чёрный — виноват путь конвертации.
+        if (frameIndex < 4L || frameIndex % 300L == 0L) {
+            var sum = 0L
+            var count = 0
+            var x = 0
+            while (x < width) {
+                var y = 0
+                while (y < height) {
+                    val c = bitmap.getPixel(x, y)
+                    sum += ((c shr 16) and 0xFF) + ((c shr 8) and 0xFF) + (c and 0xFF)
+                    count += 3
+                    y += height / 8 + 1
+                }
+                x += width / 8 + 1
+            }
+            android.util.Log.d(
+                "RoadScanPerf",
+                "enc frame=$frameIndex avgRGB=${sum / count.coerceAtLeast(1)}",
+            )
+        }
         frameIndex++
 
         // Кадр нельзя терять: пропуск кадра сокращает ролик и ломает тайминг

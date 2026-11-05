@@ -160,19 +160,32 @@ class VideoBrander(
             Paint().apply { color = Color.argb(170, 20, 26, 32) },
         )
 
+        // Подписи соседних маркеров не должны слипаться: чередуем
+        // два уровня и прячем слишком близкие.
+        var lastLabelX = Float.NEGATIVE_INFINITY
+        var level = 0
         for (item in allEvents) {
             val pos = (item.event.peak.timeMs.toFloat() / durationMs).coerceIn(0f, 1f)
             val x = margin + pos * (width - margin * 2)
             val color = defectColor(item.event.type)
             val marker = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
             canvas.drawCircle(x, y + trackH / 2, 7f * k, marker)
-            // Номер находки над маркером — как в ведомости.
+
+            val labelWidth = 64f * k
+            if (x - lastLabelX < labelWidth) {
+                level = 1 - level
+            } else {
+                level = 0
+            }
+            if (x - lastLabelX < labelWidth * 0.55f) continue // слишком близко — без подписи
+            val labelY = y - 8f * k - level * 22f * k
             canvas.drawText(
                 item.id,
                 x - 16f * k,
-                y - 8f * k,
+                labelY,
                 paint(color, 17f, bold = true),
             )
+            lastLabelX = x
         }
 
         // Головка воспроизведения.
@@ -388,14 +401,19 @@ class VideoBrander(
         }
         val mask = ai.roadscan.core.video.DefectSilhouette.mask(luma, gw, gh, item.event.type)
 
-        // Рисуем маску как столбцы прозрачного цвета — форма читается сразу.
+        // Рисуем маску столбцами: заливка + светящийся контур формы.
         val fill = Paint().apply {
+            this.color = (color and 0x00FFFFFF) or (0x88 shl 24)
+        }
+        val glowSoft = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 7f * k
             this.color = (color and 0x00FFFFFF) or (0x55 shl 24)
         }
         val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 2.5f * k
-            this.color = (color and 0x00FFFFFF) or (0xAA shl 24)
+            strokeWidth = 3f * k
+            this.color = Color.WHITE
         }
         val cellW = (right - left) / gw
         val cellH = (bottom - top) / gh
@@ -411,9 +429,11 @@ class VideoBrander(
                     canvas.drawRect(x0, y0, x1, y0 + cellH, fill)
                     // Контур сверху/снизу прогона — лёгкая обводка формы.
                     if (gy == 0 || !mask[(gy - 1) * gw + runStart]) {
+                        canvas.drawLine(x0, y0, x1, y0, glowSoft)
                         canvas.drawLine(x0, y0, x1, y0, glow)
                     }
                     if (gy == gh - 1 || !mask[(gy + 1) * gw + runStart]) {
+                        canvas.drawLine(x0, y0 + cellH, x1, y0 + cellH, glowSoft)
                         canvas.drawLine(x0, y0 + cellH, x1, y0 + cellH, glow)
                     }
                     runStart = -1
@@ -432,16 +452,23 @@ class VideoBrander(
 
         drawSilhouette(canvas, frame, item, left, top, right, bottom, color)
 
+        // Двойная рамка: тёмная подложка + цветная линия — читается
+        // и на светлом асфальте, и в тени.
         canvas.drawRect(left, top, right, bottom, Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 4f * k
+            strokeWidth = 9f * k
+            this.color = Color.argb(160, 0, 0, 0)
+        })
+        canvas.drawRect(left, top, right, bottom, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 5f * k
             this.color = color
         })
 
-        val corner = 28f * k
+        val corner = 34f * k
         val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 7f * k
+            strokeWidth = 10f * k
             this.color = color
         }
         canvas.drawLine(left, top, left + corner, top, stroke)
@@ -453,19 +480,28 @@ class VideoBrander(
         canvas.drawLine(right, bottom, right - corner, bottom, stroke)
         canvas.drawLine(right, bottom, right, bottom - corner, stroke)
 
-        val label = "${item.id} · ${(item.event.confidence * 100).toInt()}%"
-        val textWidth = labelPaint.measureText(label)
-        val pad = 10f * k
-        val chipHeight = 34f * k
-        var chipTop = top - chipHeight - 4f * k
-        if (chipTop < 100f * k) chipTop = top + 4f * k
+        val typeName = texts.typeNames[item.event.type] ?: item.event.type.name
+        val label = "$typeName ${item.id} · ${(item.event.confidence * 100).toInt()}%"
+        val chipPaint = paint(Color.WHITE, 26f, bold = true)
+        val textWidth = chipPaint.measureText(label)
+        val pad = 12f * k
+        val chipHeight = 42f * k
+        var chipTop = top - chipHeight - 6f * k
+        if (chipTop < 100f * k) chipTop = bottom + 6f * k
+        // Подложка-тень + цветная плашка: текст читается на любом фоне.
+        canvas.drawRoundRect(
+            RectF(left, chipTop + 3f * k, left + textWidth + pad * 2, chipTop + chipHeight + 3f * k),
+            8f * k,
+            8f * k,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = Color.argb(140, 0, 0, 0) },
+        )
         canvas.drawRoundRect(
             RectF(left, chipTop, left + textWidth + pad * 2, chipTop + chipHeight),
-            6f * k,
-            6f * k,
+            8f * k,
+            8f * k,
             Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color },
         )
-        canvas.drawText(label, left + pad, chipTop + 25f * k, labelPaint)
+        canvas.drawText(label, left + pad, chipTop + 30f * k, chipPaint)
     }
 
     private fun drawInfoCard(
@@ -478,7 +514,8 @@ class VideoBrander(
         val cardWidth = minOf(width - 80f * k, 760f * k)
         val cardLeft = if (alignRight) width - cardWidth - 40f * k else 40f * k
         val cardHeight = 142f * k
-        val cardTop = height - cardHeight - 52f * k
+        // Выше ленты находок: лента всегда читается, карточка её не перекрывает.
+        val cardTop = height - cardHeight - 96f * k
         canvas.drawRoundRect(
             RectF(cardLeft, cardTop, cardLeft + cardWidth, cardTop + cardHeight),
             14f * k,

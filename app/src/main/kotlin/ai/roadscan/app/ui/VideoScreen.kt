@@ -633,6 +633,8 @@ private fun VideoPreview(file: File) {
     var playing by remember(file.path) { mutableStateOf(false) }
 
     LaunchedEffect(file.path) {
+        // Кадр берём не из титула (он тёмный и выглядит как «чёрное видео»),
+        // а из живой части — на 15% длительности: там уже дорога с разметкой.
         poster = withContext(Dispatchers.IO) { posterFrame(file) }?.asImageBitmap()
     }
 
@@ -687,12 +689,25 @@ private fun VideoPreview(file: File) {
     }
 }
 
-/** Кадр-заставка из готового ролика: ~0,8 с, уменьшенный до 720 px. */
+/**
+ * Кадр-заставка из готового ролика, уменьшенный до 720 px.
+ *
+ * Ролик начинается с тёмного титула (2,6 с) — кадр из него выглядит
+ * как «чёрное видео». Поэтому берём кадр на 15% длительности, но не
+ * раньше 4 с: там уже видна дорога с рамками дефектов.
+ */
 private fun posterFrame(file: File): Bitmap? {
     val retriever = MediaMetadataRetriever()
     return try {
         retriever.setDataSource(file.absolutePath)
+        val durationMs = retriever
+            .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            ?.toLongOrNull() ?: 0L
+        val atMs = (durationMs * 15 / 100).coerceIn(4_000L, durationMs.coerceAtLeast(4_000L))
         val frame = retriever.getFrameAtTime(
+            atMs * 1_000L,
+            MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+        ) ?: retriever.getFrameAtTime(
             800_000L,
             MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
         ) ?: return null
